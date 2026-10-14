@@ -1,0 +1,32 @@
+ANVIL — SOFTWARE LICENSE
+
+Copyright © 2026 Jay Chirag Patel, Santa Clara, California. All rights reserved.
+
+Anvil, including its program code, libraries, shaders, artwork, icons and documentation,
+is the property of Jay Chirag Patel. It is not open source.
+
+You may install and use this copy of Anvil on Macs you own or control, for your own use.
+
+You may not, without written permission from Jay Chirag Patel:
+  - copy, sell, rent, sublicense or redistribute Anvil, in whole or in part, except by
+    passing on the original, unmodified .dmg file it came in;
+  - modify, adapt, translate or make derivative works of Anvil;
+  - reverse engineer, decompile or disassemble Anvil, except where applicable law
+    expressly permits it despite this limitation;
+  - remove or change any copyright, authorship or licence notice in Anvil.
+
+The public edition of Anvil checks at every start that none of its files have been
+changed, removed or added, and does not start if any have. This check never deletes or
+alters anything on your Mac; installing an original copy again restores it.
+
+Anvil downloads software made by others when you ask it to — the Wine-based game engine
+(from its publisher), Steam (from Valve), and legendary, the open-source Epic Games
+client (from its own project). Those programs are under their own licences, not this
+one. Anvil also contains third-party code under the licences listed in
+Anvil.app/Contents/Resources/Legal. Steam is a trademark of Valve Corporation; Epic
+Games is a trademark of Epic Games, Inc. Anvil is not affiliated with either.
+
+Anvil is provided "as is", without warranty of any kind, express or implied. In no event
+shall the author be liable for any claim, damages or other liability arising from the
+use of Anvil, including loss of data or of game progress. Online games may have their
+own rules about the software they run alongside; following them is up to the player.
