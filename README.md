@@ -52,7 +52,6 @@ D3DMetal), so which games start is about the same. What Anvil adds is what happe
 | 3D surround sound | ✅ | — | — |
 | Save backups | ✅ on your Mac | — | ✅ cloud sync |
 | Plain-English problem reports | ✅ | — | — |
-| Open source | — | ✅ | ✅ |
 | Runs on | Apple silicon Macs | Macs | Mac, Windows, Linux |
 
 <sub>— means not listed in that project's README (October 2026). Heroic also supports more
