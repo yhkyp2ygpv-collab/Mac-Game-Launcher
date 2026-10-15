@@ -7,7 +7,7 @@ Anvil fixes that. It installs and runs Windows games on Apple silicon Macs, then
 one while you play: sharper upscaling, extra frames in heavy scenes, even frame pacing,
 working controllers and surround sound.
 
-### [⬇ Download Anvil 0.48.0](https://github.com/yhkyp2ygpv-collab/Mac-Game-Launcher/releases/latest)
+### [⬇ Download Anvil 0.49.0](https://github.com/yhkyp2ygpv-collab/Mac-Game-Launcher/releases/latest)
 
 Free · Apple silicon (M1 or later) · macOS 14 Sonoma or newer
 
@@ -19,7 +19,10 @@ Free · Apple silicon (M1 or later) · macOS 14 Sonoma or newer
 - **AMD FSR upscaling in every game** — FSR 1 or FSR 3 to your display's full resolution,
   with textures sharpened to match. DLSS games can use Apple's MetalFX instead.
 - **Smooth Motion** — in heavy scenes, a frame made between each two of the game's own:
-  30 fps of its own is shown as about 60.
+  30 fps of its own is shown as about 60. Works on ProMotion and on regular 60 Hz displays.
+- **Guardian** — a small self-learning helper inside each game. Every few seconds it checks
+  that everything is working, fixes what it can on the spot, and learns what runs best on
+  *your* Mac.
 - **Steady frame pacing** — even frame times on ProMotion and regular displays, so 40 fps
   feels like 40 and not like stutter.
 - **Auto-Tune** — measures each game on your Mac and picks its settings and engine for you.
@@ -52,6 +55,7 @@ D3DMetal), so which games start is about the same. What Anvil adds is what happe
 | 3D surround sound | ✅ | — | — |
 | Save backups | ✅ on your Mac | — | ✅ cloud sync |
 | Plain-English problem reports | ✅ | — | — |
+| Self-learning in-game checks (Guardian) | ✅ | — | — |
 | Runs on | Apple silicon Macs | Macs | Mac, Windows, Linux |
 
 <sub>— means not listed in that project's README (October 2026). Heroic also supports more
@@ -60,7 +64,7 @@ feedback form below.</sub>
 
 ## Install
 
-1. Download `Anvil-0.48.0.dmg` from
+1. Download `Anvil-0.49.0.dmg` from
    [Releases](https://github.com/yhkyp2ygpv-collab/Mac-Game-Launcher/releases/latest).
 2. Open it and drag **Anvil** into **Applications**.
 3. Open Anvil. If macOS says it "cannot verify" Anvil, go to
@@ -73,7 +77,7 @@ feedback form below.</sub>
 you how to add it), and about 2 GB free plus room for your games.
 
 Your passwords go only to Steam's and Epic's own sign-in pages, never to Anvil. Anvil has no
-analytics or tracking.
+analytics or tracking, and what Guardian learns stays on your Mac.
 
 ## Feedback
 
@@ -110,19 +114,33 @@ Please leave out personal details such as account names or email addresses.
   release lists the DMG's SHA-256, so you can check your download.
 - **No warranty.** Anvil is provided "as is"; see [LICENSE.txt](LICENSE.txt).
 
-## What's new in 0.48.0
+## What's new in 0.49.0
 
-- **Smooth Motion rebuilt.** Each made frame is now built between two real frames instead
-  of guessed ahead, so it stays right when you turn or stop. Frames are shown evenly.
-- **Works in heavy scenes from 15 fps.** In Anvil's heavy test scene, frames shown went
-  from about 35 to about 69 a second, 1% lows from 20 to 34 fps, and the worst gap between
-  frames from 50 to about 30 ms.
-- **No more switching on and off** as the frame rate swings.
-- **Heavy-scene report.** The Doctor now names the three GPU passes that cost the most, so
-  you can see what makes a scene slow.
+- **Guardian.** A small part of Anvil inside each game wakes every few seconds and checks
+  that everything is working:
+  - frames keep reaching the screen;
+  - Smooth Motion isn't costing the game its own frames;
+  - nothing switches back and forth.
+
+  It also learns what runs best on your Mac. Now and then it compares Smooth Motion
+  against the game's own frames in the same scene, and keeps whichever is smoother at
+  each frame rate. What it learns is saved for each game on each Mac.
+- **Smooth Motion can't hold a game back any more.** In 0.48 it could get a game stuck at
+  a lower frame rate. That's fixed, and if Smooth Motion ever costs too much it now pauses
+  for a minute instead of switching off for the whole session.
+- **Smooth Motion on 60 Hz displays.** MacBook Air and most external monitors now get
+  frames between too, from 15 to 30 fps of the game's own.
+- **Check-Up while you're away.** Anvil checks itself every 3 hours while it's open and
+  no game is running.
 
 Full notes open in Anvil the first time you start a new version. You can also click the
 version number at the bottom of the sidebar.
+
+## Legacy versions
+
+Older versions stay available in case a new one doesn't suit a game:
+
+- [Anvil 0.48.0 (legacy)](https://github.com/yhkyp2ygpv-collab/Mac-Game-Launcher/releases/tag/v0.48.0)
 
 ## Credits
 
