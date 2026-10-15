@@ -7,7 +7,7 @@ Anvil fixes that. It installs and runs Windows games on Apple silicon Macs, then
 one while you play: sharper upscaling, extra frames in heavy scenes, even frame pacing,
 working controllers and surround sound.
 
-### [⬇ Download Anvil 0.49.0](https://github.com/yhkyp2ygpv-collab/Mac-Game-Launcher/releases/latest)
+### [⬇ Download Anvil 0.50.0](https://github.com/yhkyp2ygpv-collab/Mac-Game-Launcher/releases/latest)
 
 Free · Apple silicon (M1 or later) · macOS 14 Sonoma or newer
 
@@ -30,6 +30,8 @@ Free · Apple silicon (M1 or later) · macOS 14 Sonoma or newer
   Mac before the game starts, and the game's shader cache is kept between sessions.
 - **Controllers** — Xbox, PlayStation and Switch Pro controllers, with a built-in tester.
 - **3D surround sound** — spatial audio for every game, and stereo turned into surround.
+- **Memory warm-up** — the parts of a game you play most are read into your Mac's spare
+  unified memory as it starts, so places you've been load from memory, not the disk.
 - **Save Guard** — automatic backups of your saves.
 - **Doctor and Check-Up** — after each session, Anvil explains in plain words what slowed
   the game down or went wrong, and what it changed.
@@ -56,6 +58,7 @@ D3DMetal), so which games start is about the same. What Anvil adds is what happe
 | Save backups | ✅ on your Mac | — | ✅ cloud sync |
 | Plain-English problem reports | ✅ | — | — |
 | Self-learning in-game checks (Guardian) | ✅ | — | — |
+| Memory warm-up for game data | ✅ | — | — |
 | Runs on | Apple silicon Macs | Macs | Mac, Windows, Linux |
 
 <sub>— means not listed in that project's README (October 2026). Heroic also supports more
@@ -64,7 +67,7 @@ feedback form below.</sub>
 
 ## Install
 
-1. Download `Anvil-0.49.0.dmg` from
+1. Download `Anvil-0.50.0.dmg` from
    [Releases](https://github.com/yhkyp2ygpv-collab/Mac-Game-Launcher/releases/latest).
 2. Open it and drag **Anvil** into **Applications**.
 3. Open Anvil. If macOS says it "cannot verify" Anvil, go to
@@ -114,24 +117,18 @@ Please leave out personal details such as account names or email addresses.
   release lists the DMG's SHA-256, so you can check your download.
 - **No warranty.** Anvil is provided "as is"; see [LICENSE.txt](LICENSE.txt).
 
-## What's new in 0.49.0
+## What's new in 0.50.0
 
-- **Guardian.** A small part of Anvil inside each game wakes every few seconds and checks
-  that everything is working:
-  - frames keep reaching the screen;
-  - Smooth Motion isn't costing the game its own frames;
-  - nothing switches back and forth.
-
-  It also learns what runs best on your Mac. Now and then it compares Smooth Motion
-  against the game's own frames in the same scene, and keeps whichever is smoother at
-  each frame rate. What it learns is saved for each game on each Mac.
-- **Smooth Motion can't hold a game back any more.** In 0.48 it could get a game stuck at
-  a lower frame rate. That's fixed, and if Smooth Motion ever costs too much it now pauses
-  for a minute instead of switching off for the whole session.
-- **Smooth Motion on 60 Hz displays.** MacBook Air and most external monitors now get
-  frames between too, from 15 to 30 fps of the game's own.
-- **Check-Up while you're away.** Anvil checks itself every 3 hours while it's open and
-  no game is running.
+- **Memory warm-up.** While you play, Anvil notes which parts of the game's data you
+  actually use. At the next start it reads those into your Mac's spare unified memory
+  (never more than half of what's free beyond 4 GB, at most 8 GB), so places you've been
+  before load from memory instead of the disk — fewer stutters as you reach them.
+- **Stutter reports.** Guardian now says what every stutter was: the game reading its data,
+  compiling shaders, waiting on the GPU, or its own work. The Doctor sums it up after each
+  session.
+- **Speed check.** Measured on an M4: macOS Game Mode was on the whole session and the GPU
+  was 90–100% busy with the game's own drawing in heavy scenes, so the Mac was already
+  giving the game everything; Anvil's own share stays small.
 
 Full notes open in Anvil the first time you start a new version. You can also click the
 version number at the bottom of the sidebar.
@@ -140,6 +137,7 @@ version number at the bottom of the sidebar.
 
 Older versions stay available in case a new one doesn't suit a game:
 
+- [Anvil 0.49.0 (legacy)](https://github.com/yhkyp2ygpv-collab/Mac-Game-Launcher/releases/tag/v0.49.0)
 - [Anvil 0.48.0 (legacy)](https://github.com/yhkyp2ygpv-collab/Mac-Game-Launcher/releases/tag/v0.48.0)
 
 ## Credits
