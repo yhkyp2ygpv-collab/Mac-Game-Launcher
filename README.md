@@ -7,7 +7,7 @@ Anvil fixes that. It installs and runs Windows games on Apple silicon Macs, then
 one while you play: sharper upscaling, extra frames in heavy scenes, even frame pacing,
 working controllers and surround sound.
 
-### [⬇ Download Anvil 0.52.0](https://github.com/yhkyp2ygpv-collab/Mac-Game-Launcher/releases/latest)
+### [⬇ Download Anvil 0.53.0](https://github.com/yhkyp2ygpv-collab/Mac-Game-Launcher/releases/latest)
 
 Free · Apple silicon (M1 or later) · macOS 14 Sonoma or newer
 
@@ -72,7 +72,7 @@ feedback form below.</sub>
 
 ## Install
 
-1. Download `Anvil-0.52.0.dmg` from
+1. Download `Anvil-0.53.0.dmg` from
    [Releases](https://github.com/yhkyp2ygpv-collab/Mac-Game-Launcher/releases/latest).
 2. Open it and drag **Anvil** into **Applications**.
 3. Open Anvil. If macOS says it "cannot verify" Anvil, go to
@@ -122,20 +122,21 @@ Please leave out personal details such as account names or email addresses.
   release lists the DMG's SHA-256, so you can check your download.
 - **No warranty.** Anvil is provided "as is"; see [LICENSE.txt](LICENSE.txt).
 
-## What's new in 0.52.0
+## What's new in 0.53.0
 
-- **No more distortion with reflections on.** LEGO Star Wars' Medium graphics now keeps the
-  game's reflections and turns off its water and heat distortion, which warps the picture in a
-  way upscaling and Smooth Motion can't follow.
-- **Made frames are checked.** Before each made frame, Anvil compares the two real frames
-  (0.02 ms on an M4). Where they disagree over much of the picture, the nearer real frame is
-  shown instead, so nothing warps or doubles.
-- **Smooth Motion stays at one made frame between each two.** A three-and-four-frame mode was
-  tested in a real game and held back: it cost the game too much of its own speed in heavy scenes.
-- **Look Check** on each game's page: what's on and off in its picture and why.
-- **Ray tracing**: turned on for DirectX 12 games that have it, on M3 and M4 Macs. DirectX 11
-  games can't use the Mac's ray-tracing hardware; their reflections are traced in screen space,
-  and those stay on.
+- **Size before you install.** An ⓘ beside each Epic game shows what it downloads, what it
+  takes once installed, and what's free on your Mac, with a warning if it won't fit.
+- **Cancel a download.** Stop and keep what's downloaded (installing again resumes), or stop
+  and send the partial download to the Trash. Unfinished downloads left on disk are listed with
+  their size and can be cleared.
+- **Delete a game.** On the Epic page, in the library's right-click menu or on the game's page:
+  its saves are exported first, then its folder goes to the Trash or is deleted at once to free
+  the space.
+
+## In 0.52.0
+
+- **Ray Tracing switch** on each game's page, set up for your Mac by Graphics Prep.
+- **No more distortion with reflections on**, and made frames checked before they're shown.
 
 Smooth Motion makes the picture look smoother; controls still respond at the game's own rate.
 
@@ -146,6 +147,7 @@ version number at the bottom of the sidebar.
 
 Older versions stay available in case a new one doesn't suit a game:
 
+- [Anvil 0.52.0 (legacy)](https://github.com/yhkyp2ygpv-collab/Mac-Game-Launcher/releases/tag/v0.52.0)
 - [Anvil 0.50.0 (legacy)](https://github.com/yhkyp2ygpv-collab/Mac-Game-Launcher/releases/tag/v0.50.0)
 - [Anvil 0.49.0 (legacy)](https://github.com/yhkyp2ygpv-collab/Mac-Game-Launcher/releases/tag/v0.49.0)
 - [Anvil 0.48.0 (legacy)](https://github.com/yhkyp2ygpv-collab/Mac-Game-Launcher/releases/tag/v0.48.0)
