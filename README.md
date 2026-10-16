@@ -7,7 +7,7 @@ Anvil fixes that. It installs and runs Windows games on Apple silicon Macs, then
 one while you play: sharper upscaling, extra frames in heavy scenes, even frame pacing,
 working controllers and surround sound.
 
-### [⬇ Download Anvil 0.50.0](https://github.com/yhkyp2ygpv-collab/Mac-Game-Launcher/releases/latest)
+### [⬇ Download Anvil 0.52.0](https://github.com/yhkyp2ygpv-collab/Mac-Game-Launcher/releases/latest)
 
 Free · Apple silicon (M1 or later) · macOS 14 Sonoma or newer
 
@@ -19,7 +19,11 @@ Free · Apple silicon (M1 or later) · macOS 14 Sonoma or newer
 - **AMD FSR upscaling in every game** — FSR 1 or FSR 3 to your display's full resolution,
   with textures sharpened to match. DLSS games can use Apple's MetalFX instead.
 - **Smooth Motion** — in heavy scenes, a frame made between each two of the game's own:
-  30 fps of its own is shown as about 60. Works on ProMotion and on regular 60 Hz displays.
+  40 fps is shown as 80. Each made frame is checked first; where the two real frames disagree
+  (reflections, heat, fast chaos), the real frame is shown instead of a warped one. Works on
+  ProMotion and on regular 60 Hz displays.
+- **Look Check** — shows what's on and off in a game's picture (reflections, shadows, blur,
+  ray tracing) and why, with one click to turn reflections or the game's own look back on.
 - **Guardian** — a small self-learning helper inside each game. Every few seconds it checks
   that everything is working, fixes what it can on the spot, and learns what runs best on
   *your* Mac.
@@ -50,7 +54,7 @@ D3DMetal), so which games start is about the same. What Anvil adds is what happe
 | Epic Games | ✅ | ✅ | ✅ |
 | GOG and Amazon | — | — | ✅ |
 | AMD FSR upscaling in every game | ✅ | — | — |
-| Frame generation (Smooth Motion) | ✅ | — | — |
+| Frame generation (Smooth Motion), checked frame by frame | ✅ | — | — |
 | Frame pacing for ProMotion displays | ✅ | — | — |
 | Automatic per-game tuning | ✅ | — | — |
 | In-game controller fixes (Switch Pro, input lag) | ✅ | — | — |
@@ -59,6 +63,7 @@ D3DMetal), so which games start is about the same. What Anvil adds is what happe
 | Plain-English problem reports | ✅ | — | — |
 | Self-learning in-game checks (Guardian) | ✅ | — | — |
 | Memory warm-up for game data | ✅ | — | — |
+| Ray tracing turned on for DirectX 12 games that have it (M3/M4) | ✅ | — | — |
 | Runs on | Apple silicon Macs | Macs | Mac, Windows, Linux |
 
 <sub>— means not listed in that project's README (October 2026). Heroic also supports more
@@ -67,7 +72,7 @@ feedback form below.</sub>
 
 ## Install
 
-1. Download `Anvil-0.50.0.dmg` from
+1. Download `Anvil-0.52.0.dmg` from
    [Releases](https://github.com/yhkyp2ygpv-collab/Mac-Game-Launcher/releases/latest).
 2. Open it and drag **Anvil** into **Applications**.
 3. Open Anvil. If macOS says it "cannot verify" Anvil, go to
@@ -117,18 +122,22 @@ Please leave out personal details such as account names or email addresses.
   release lists the DMG's SHA-256, so you can check your download.
 - **No warranty.** Anvil is provided "as is"; see [LICENSE.txt](LICENSE.txt).
 
-## What's new in 0.50.0
+## What's new in 0.52.0
 
-- **Memory warm-up.** While you play, Anvil notes which parts of the game's data you
-  actually use. At the next start it reads those into your Mac's spare unified memory
-  (never more than half of what's free beyond 4 GB, at most 8 GB), so places you've been
-  before load from memory instead of the disk — fewer stutters as you reach them.
-- **Stutter reports.** Guardian now says what every stutter was: the game reading its data,
-  compiling shaders, waiting on the GPU, or its own work. The Doctor sums it up after each
-  session.
-- **Speed check.** Measured on an M4: macOS Game Mode was on the whole session and the GPU
-  was 90–100% busy with the game's own drawing in heavy scenes, so the Mac was already
-  giving the game everything; Anvil's own share stays small.
+- **No more distortion with reflections on.** LEGO Star Wars' Medium graphics now keeps the
+  game's reflections and turns off its water and heat distortion, which warps the picture in a
+  way upscaling and Smooth Motion can't follow.
+- **Made frames are checked.** Before each made frame, Anvil compares the two real frames
+  (0.02 ms on an M4). Where they disagree over much of the picture, the nearer real frame is
+  shown instead, so nothing warps or doubles.
+- **Smooth Motion stays at one made frame between each two.** A three-and-four-frame mode was
+  tested in a real game and held back: it cost the game too much of its own speed in heavy scenes.
+- **Look Check** on each game's page: what's on and off in its picture and why.
+- **Ray tracing**: turned on for DirectX 12 games that have it, on M3 and M4 Macs. DirectX 11
+  games can't use the Mac's ray-tracing hardware; their reflections are traced in screen space,
+  and those stay on.
+
+Smooth Motion makes the picture look smoother; controls still respond at the game's own rate.
 
 Full notes open in Anvil the first time you start a new version. You can also click the
 version number at the bottom of the sidebar.
@@ -137,6 +146,7 @@ version number at the bottom of the sidebar.
 
 Older versions stay available in case a new one doesn't suit a game:
 
+- [Anvil 0.50.0 (legacy)](https://github.com/yhkyp2ygpv-collab/Mac-Game-Launcher/releases/tag/v0.50.0)
 - [Anvil 0.49.0 (legacy)](https://github.com/yhkyp2ygpv-collab/Mac-Game-Launcher/releases/tag/v0.49.0)
 - [Anvil 0.48.0 (legacy)](https://github.com/yhkyp2ygpv-collab/Mac-Game-Launcher/releases/tag/v0.48.0)
 
