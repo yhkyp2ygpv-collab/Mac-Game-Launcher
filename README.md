@@ -7,7 +7,7 @@ Anvil fixes that. It installs and runs Windows games on Apple silicon Macs, then
 one while you play: sharper upscaling, extra frames in heavy scenes, even frame pacing,
 working controllers and surround sound.
 
-### [⬇ Download Anvil 0.57.0](https://github.com/yhkyp2ygpv-collab/Mac-Game-Launcher/releases/latest)
+### [⬇ Download Anvil 0.58.0](https://github.com/yhkyp2ygpv-collab/Mac-Game-Launcher/releases/latest)
 
 Free · Apple silicon (M1 or later) · macOS 14 Sonoma or newer
 
@@ -74,7 +74,7 @@ feedback form below.</sub>
 
 ## Install
 
-1. Download `Anvil-0.57.0.dmg` from
+1. Download `Anvil-0.58.0.dmg` from
    [Releases](https://github.com/yhkyp2ygpv-collab/Mac-Game-Launcher/releases/latest).
 2. Open it and drag **Anvil** into **Applications**.
 3. Open Anvil. If macOS says it "cannot verify" Anvil, go to
@@ -124,29 +124,27 @@ Please leave out personal details such as account names or email addresses.
   release lists the DMG's SHA-256, so you can check your download.
 - **No warranty.** Anvil is provided "as is"; see [LICENSE.txt](LICENSE.txt).
 
-## What's new in 0.57.0
+## What's new in 0.58.0
 
-- **The frame rate shown is the real one.** The FPS counter and the logs used to average
-  1 ÷ each frame gap, which reads uneven frames as faster than they are: a juddering 80 showed
-  as 91, and an even 80 then looked like a drop. They now count frames over time.
-- **A held 80 keeps its spacing better.** Frames held to an even 80 (as on battery) ask the
-  display for a slightly shorter minimum gap that still lands on the 12.5 ms step. In testing:
-  82% even after a late frame instead of 56%.
-- **Heavy frames timed in full.** Anvil's GPU timing stopped at a frame's first 192 passes, so
-  the heaviest scenes were under-measured. It now times up to 1024, Metal's most.
-- **Minecraft's PC version, the genuine one** (from 0.56.0, never released on its own):
-  Bedrock in Windows 11 for Arm through VMware Fusion, set up for Minecraft by Anvil. It
-  installs the official Minecraft Launcher from the Microsoft Store, trims Windows' extras but
-  keeps the Store and Xbox sign-in, and starts straight into the game. Play and Put Away
-  resume it in seconds. You install Fusion and Windows and sign in yourself; Anvil never
-  handles your passwords. Its first full run on a real Windows install is still to come.
+- **Smooth Motion through explosions, lightning and fire.** In effects-heavy scenes Smooth
+  Motion used to give up on whole frames and show a real frame twice (64% of made frames in
+  one evening of LEGO Star Wars). Now it shows the real frame only *where* the two frames
+  disagree (the flames, sparks or a reflection) and keeps camera and character motion smooth
+  everywhere else.
+- **Crashes blamed correctly.** A crash in a game's own online code right after the Mac woke
+  from sleep had switched FSR 3 off, and Smooth Motion with it. Anvil now reads the game's
+  own crash record, keeps FSR 3 on when graphics weren't involved, and says what happened.
+  FSR 3 and Smooth Motion are back on for LEGO Star Wars.
+- **Clearer check-ups:** a note to save before letting the Mac sleep when a game crashed on
+  waking, and a count of graphics effects D3DMetal couldn't build.
 
-Known limits: a held 80 can still judder when the display falls back to its own 120 Hz
-steps. The display decides when, and two ways of steering it didn't help, so they were left
-out. LEGO Star Wars' heaviest place runs at 9–22 fps on a base M4 because of the game's own
-scene and shadow work.
+Known limits: at 60–80 fps of a game's own nothing is made (a frame between needs two
+refreshes of room at 120 Hz). The heaviest scenes are the game's own drawing.
 
-(0.56.0 was never released; its changes are in 0.57.0.)
+## In 0.57.0
+
+- **The FPS counter is honest**, a **held 80 keeps its spacing better**, heavy frames are
+  timed in full, and **Minecraft's PC version** runs through VMware Fusion.
 
 ## In 0.55.0
 
@@ -171,6 +169,7 @@ version number at the bottom of the sidebar.
 
 Older versions stay available in case a new one doesn't suit a game:
 
+- [Anvil 0.57.0 (legacy)](https://github.com/yhkyp2ygpv-collab/Mac-Game-Launcher/releases/tag/v0.57.0)
 - [Anvil 0.55.0 (legacy)](https://github.com/yhkyp2ygpv-collab/Mac-Game-Launcher/releases/tag/v0.55.0)
 - [Anvil 0.53.0 (legacy)](https://github.com/yhkyp2ygpv-collab/Mac-Game-Launcher/releases/tag/v0.53.0)
 - [Anvil 0.52.0 (legacy)](https://github.com/yhkyp2ygpv-collab/Mac-Game-Launcher/releases/tag/v0.52.0)
