@@ -7,7 +7,7 @@ Anvil fixes that. It installs and runs Windows games on Apple silicon Macs, then
 one while you play: sharper upscaling, extra frames in heavy scenes, even frame pacing,
 working controllers and surround sound.
 
-### [⬇ Download Anvil 0.55.0](https://github.com/yhkyp2ygpv-collab/Mac-Game-Launcher/releases/latest)
+### [⬇ Download Anvil 0.57.0](https://github.com/yhkyp2ygpv-collab/Mac-Game-Launcher/releases/latest)
 
 Free · Apple silicon (M1 or later) · macOS 14 Sonoma or newer
 
@@ -33,6 +33,8 @@ Free · Apple silicon (M1 or later) · macOS 14 Sonoma or newer
 - **Graphics Prep** — Anvil's upscaling and frame generation are compiled and tested on your
   Mac before the game starts, and the game's shader cache is kept between sessions.
 - **Controllers** — Xbox, PlayStation and Switch Pro controllers, with a built-in tester.
+- **Minecraft** — Java Edition through Mojang's own launcher, and Bedrock's PC version in
+  Windows through VMware Fusion, set up by Anvil and started straight into the game.
 - **3D surround sound** — spatial audio for every game, and stereo turned into surround.
 - **Memory warm-up** — the parts of a game you play most are read into your Mac's spare
   unified memory as it starts, so places you've been load from memory, not the disk.
@@ -72,7 +74,7 @@ feedback form below.</sub>
 
 ## Install
 
-1. Download `Anvil-0.55.0.dmg` from
+1. Download `Anvil-0.57.0.dmg` from
    [Releases](https://github.com/yhkyp2ygpv-collab/Mac-Game-Launcher/releases/latest).
 2. Open it and drag **Anvil** into **Applications**.
 3. Open Anvil. If macOS says it "cannot verify" Anvil, go to
@@ -122,27 +124,34 @@ Please leave out personal details such as account names or email addresses.
   release lists the DMG's SHA-256, so you can check your download.
 - **No warranty.** Anvil is provided "as is"; see [LICENSE.txt](LICENSE.txt).
 
-## What's new in 0.55.0
+## What's new in 0.57.0
 
-- **Ray tracing at its best.** LEGO Star Wars' ray-traced reflections now run at the game's own
-  top quality on a standard M-series Mac (a base M4 included), where 0.52–0.54 set them a step
-  lower. Only entry-level GPUs keep the lighter step.
-- **Quicker upscaling, same picture.** At twice the game's size (the usual on a Retina
-  display), FSR 3 now takes 3.63 ms a frame instead of 3.87, and FSR 1 1.29 ms instead of
-  1.46, on an M4 at LEGO Star Wars' sizes. Every picture score in Graphics Prep's test is the same.
-- **Heavy scenes look better.** When a game slowed down a lot, Anvil could get stuck on
-  FSR 1 with frames guessed ahead. Now FSR 3 comes back, and Smooth Motion makes its frames
-  from two real ones.
-- **Smooth Motion on repeating patterns.** A fast pan over tiles, studs or brick could break
-  Smooth Motion's made frames into fragments, because each patch of a repeating pattern looks
-  the same one repeat over. Anvil now finds the whole picture's motion first and uses it to
-  keep every patch on track: in testing, motion found right in 62–73% of the picture instead
-  of 3–6%, and far fewer broken pixels.
-- **Lower latency at low frame rates** (a switch in Upscaling, off by default). Below 55 fps
-  it starts each frame just in time, so what you do shows up sooner: 15–25% less delay in
-  testing, for about 10% fewer frames. Your choice.
+- **The frame rate shown is the real one.** The FPS counter and the logs used to average
+  1 ÷ each frame gap, which reads uneven frames as faster than they are: a juddering 80 showed
+  as 91, and an even 80 then looked like a drop. They now count frames over time.
+- **A held 80 keeps its spacing better.** Frames held to an even 80 (as on battery) ask the
+  display for a slightly shorter minimum gap that still lands on the 12.5 ms step. In testing:
+  82% even after a late frame instead of 56%.
+- **Heavy frames timed in full.** Anvil's GPU timing stopped at a frame's first 192 passes, so
+  the heaviest scenes were under-measured. It now times up to 1024, Metal's most.
+- **Minecraft's PC version, the genuine one** (from 0.56.0, never released on its own):
+  Bedrock in Windows 11 for Arm through VMware Fusion, set up for Minecraft by Anvil. It
+  installs the official Minecraft Launcher from the Microsoft Store, trims Windows' extras but
+  keeps the Store and Xbox sign-in, and starts straight into the game. Play and Put Away
+  resume it in seconds. You install Fusion and Windows and sign in yourself; Anvil never
+  handles your passwords. Its first full run on a real Windows install is still to come.
 
-(0.54.0 was never released; its changes are in 0.55.0.)
+Known limits: a held 80 can still judder when the display falls back to its own 120 Hz
+steps. The display decides when, and two ways of steering it didn't help, so they were left
+out. LEGO Star Wars' heaviest place runs at 9–22 fps on a base M4 because of the game's own
+scene and shadow work.
+
+(0.56.0 was never released; its changes are in 0.57.0.)
+
+## In 0.55.0
+
+- **Ray tracing at its best** on a standard M-series Mac, **quicker FSR** with the same
+  picture, and heavy scenes that keep FSR 3 and Smooth Motion.
 
 ## In 0.53.0
 
@@ -162,6 +171,7 @@ version number at the bottom of the sidebar.
 
 Older versions stay available in case a new one doesn't suit a game:
 
+- [Anvil 0.55.0 (legacy)](https://github.com/yhkyp2ygpv-collab/Mac-Game-Launcher/releases/tag/v0.55.0)
 - [Anvil 0.53.0 (legacy)](https://github.com/yhkyp2ygpv-collab/Mac-Game-Launcher/releases/tag/v0.53.0)
 - [Anvil 0.52.0 (legacy)](https://github.com/yhkyp2ygpv-collab/Mac-Game-Launcher/releases/tag/v0.52.0)
 - [Anvil 0.50.0 (legacy)](https://github.com/yhkyp2ygpv-collab/Mac-Game-Launcher/releases/tag/v0.50.0)
