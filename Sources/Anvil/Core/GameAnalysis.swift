@@ -57,7 +57,36 @@ struct GameAnalysis: Codable, Hashable {
 
     // MARK: Reading
 
-    static func analyze(executable url: URL) -> GameAnalysis {
+    /// The program that draws: for an Unreal Engine game started through its launcher — the small .exe at
+    /// the top of its folder, beside Engine/, that checks for prerequisites and starts the real one — the
+    /// program under <Project>/Binaries/Win64. Hogwarts Legacy's launcher is 290 KB and links no Direct3D;
+    /// its game (Phoenix/Binaries/Win64/HogwartsLegacy.exe, 458 MB) draws with DirectX 12 and has Unreal's
+    /// ray tracing. Read as the launcher until 0.59, it was "its own engine", and its ray tracing stayed off
+    /// on an M4 that traces rays in hardware.
+    static func drawingProgram(for executable: URL) -> URL {
+        let folder = executable.deletingLastPathComponent()
+        let fm = FileManager.default
+        var isDir: ObjCBool = false
+        guard fm.fileExists(atPath: folder.appendingPathComponent("Engine").path, isDirectory: &isDir), isDir.boolValue,
+              let projects = try? fm.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil) else { return executable }
+        let base = executable.deletingPathExtension().lastPathComponent.lowercased()
+        for project in projects where project.lastPathComponent != "Engine" {
+            for bin in ["Binaries/Win64", "Binaries/WinGDK", "Binaries/Win32"] {
+                let dir = project.appendingPathComponent(bin, isDirectory: true)
+                guard let files = try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil) else { continue }
+                let exes = files.filter { $0.pathExtension.lowercased() == "exe" && !$0.lastPathComponent.lowercased().contains("crashreport") }
+                if let same = exes.first(where: { $0.deletingPathExtension().lastPathComponent.lowercased() == base })
+                    ?? exes.first(where: { $0.lastPathComponent.lowercased().hasPrefix(base + "-win") })
+                    ?? (exes.count == 1 ? exes.first : nil) {
+                    return same
+                }
+            }
+        }
+        return executable
+    }
+
+    static func analyze(executable launched: URL) -> GameAnalysis {
+        let url = drawingProgram(for: launched)
         let folder = url.deletingLastPathComponent()
         let fm = FileManager.default
         let data = (try? Data(contentsOf: url, options: .mappedIfSafe)) ?? Data()
@@ -100,6 +129,12 @@ struct GameAnalysis: Codable, Hashable {
             engine = .ttGames
         }
 
+        // Unreal links Direct3D 11 for its fallback and loads 12 when it runs: Hogwarts Legacy imports d3d11.dll
+        // and draws with DirectX 12. Its program naming d3d12.dll is DirectX 12 it can use, and the newer wins.
+        if engine == .unreal, !apis.contains(.d3d12), mentions("d3d12.dll") || mentions("D3D12CreateDevice") {
+            apis.insert(.d3d12)
+        }
+
         // A name that says which renderer this build is wins over everything else.
         var primary: API?
         if lowered.contains("dx12") || lowered.contains("d3d12") { primary = .d3d12; apis.insert(.d3d12) }
@@ -135,7 +170,7 @@ struct GameAnalysis: Codable, Hashable {
         rayTracingLock.lock()
         if let seen = rayTracingSeen[key] { rayTracingLock.unlock(); return seen }
         rayTracingLock.unlock()
-        var files = [url]
+        var files = [drawingProgram(for: url)]
         let player = url.deletingLastPathComponent().appendingPathComponent("UnityPlayer.dll")
         if FileManager.default.fileExists(atPath: player.path) { files.append(player) }
         let needles = ["D3D12_RAYTRACING", "r.RayTracing", "RayTracingAccelerationStructure", "RaytracingAccelerationStructure",
@@ -153,7 +188,9 @@ struct GameAnalysis: Codable, Hashable {
 
     // MARK: Cache
 
-    private struct Key: Codable, Hashable { var path: String; var size: Int; var modified: Double }
+    /// `scheme` 2: read through an Unreal launcher to the program that draws (0.59). An analysis from before
+    /// it has none and is read again.
+    private struct Key: Codable, Hashable { var path: String; var size: Int; var modified: Double; var scheme: Int? = 2 }
     private struct Stored: Codable { var entries: [String: Entry] }
     private struct Entry: Codable { var key: Key; var analysis: GameAnalysis }
 

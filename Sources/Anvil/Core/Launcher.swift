@@ -257,10 +257,13 @@ final class Launcher: ObservableObject {
         // produced device name, Rosetta mode, memory and draw counts.
         let hud = game.hudOverride ?? container.hud
         if hud.enabled {
-            let fpsOnly = hud.widgets == [.fps]
-            if fpsOnly {
+            // The frame rate, and the Mac running hot, Anvil's own counter shows: its plate turns red when the Mac
+            // is hot. Until 0.59 "thermal" sent a game to Apple's HUD — on Game Porting Toolkit 3.0 its whole panel,
+            // whatever was asked for, and at 2× it covered most of Hogwarts Legacy's screen (17 October).
+            if hud.anvilDrawsIt {
                 env["ANVIL_OVERLAY"] = "1"
-                env["ANVIL_OVERLAY_SCALE"] = "3"
+                env["ANVIL_OVERLAY_SCALE"] = String(min(max(Int((3 * hud.scale).rounded()), 2), 9))
+                env["ANVIL_OVERLAY_THERMAL"] = hud.widgets.contains(.thermal) ? "1" : "0"
                 env["ANVIL_OVERLAY_CORNER"] = {
                     switch hud.position {
                     case "top-right": "1"
@@ -1014,9 +1017,22 @@ final class Launcher: ObservableObject {
             AnvilLog.write("  " + line)
             append(line.replacingOccurrences(of: "display: ", with: ""))
         }
-        if let line = GameTuning.prepare(game, in: container, level: Tuner.shared.graphicsLevel(for: game)) {
+        let level = Tuner.shared.graphicsLevel(for: game)
+        // The Ray Tracing switch on Automatic: reflections as Learn found them worth it here, for this start.
+        var tuned = game
+        if let learned = LearnStore.shared.reflections(for: game, level: level) {
+            tuned.rayTracing = learned.on
+            AnvilLog.write("  " + learned.line)
+        }
+        if let line = GameTuning.prepare(tuned, in: container, level: level) {
             AnvilLog.write("  " + line)
         }
+        // An Unreal game: its driver warning off, which D3DMetal always trips (UnrealConfig).
+        if GameAnalysis.cached(for: game.executableURL)?.engine == .unreal, let line = UnrealConfig.prepare(game, in: container) {
+            AnvilLog.write("  " + line)
+        }
+        // What this session runs with, for Learn to file it under (game.log, under the header).
+        let learnParts = LearnStore.parts(for: tuned, in: container, level: level)
         // An Epic game started from its .exe is not signed in, and cannot see the DLC
         // its owner has. Its launcher's legendary gives the arguments Epic's own
         // launcher would pass — the same call Mythic makes on Play — and it has been
@@ -1111,6 +1127,7 @@ final class Launcher: ObservableObject {
             }
         }
         beginGameLog(for: game)
+        appendGameLog(Learn.setupLine(learnParts))
         let logStart = (try? FileManager.default.attributesOfItem(atPath: Self.gameLogURL.path))?[.size] as? UInt64 ?? 0
         if let line = tuning.logLine {
             appendGameLog(line)
@@ -1709,6 +1726,7 @@ final class Launcher: ObservableObject {
         runsBehind.remove(session.game.id)
         readyAt[session.game.id] = nil
         Tuner.shared.sessionEnded(game: session.game, userClosed: userClosed)
+        if !wasTest { LearnStore.shared.sessionEnded(game: session.game) }
         PowerState.shared.gamesRunning(sessions.map(\.game.title))
         if sessions.isEmpty {
             GameFocus.reclaim()
@@ -1901,6 +1919,9 @@ final class Launcher: ObservableObject {
 }
 
 extension HUDConfig {
+    /// Anvil's own counter covers it: the frame rate, and whether the Mac is hot.
+    var anvilDrawsIt: Bool { widgets.contains(.fps) && widgets.isSubset(of: [.fps, .thermal]) }
+
     /// Metal's HUD is driven entirely by environment variables, which is why Anvil can
     /// offer per-widget control instead of one on/off switch.
     func environment() -> [String: String] {
@@ -1908,7 +1929,8 @@ extension HUDConfig {
         var env: [String: String] = [
             "MTL_HUD_ENABLED": "1",
             "MTL_HUD_ALPHA": String(format: "%.2f", opacity),
-            "MTL_HUD_SCALE": String(format: "%.2f", scale),
+            // Apple's panel at more than its own size covers much of a game's screen on a Retina display.
+            "MTL_HUD_SCALE": String(format: "%.2f", min(scale, 1.0)),
             "MTL_HUD_ALIGNMENT": position
         ]
         // Ordering follows the canonical widget order so the overlay layout is stable

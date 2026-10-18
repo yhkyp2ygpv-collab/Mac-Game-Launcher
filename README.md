@@ -7,7 +7,7 @@ Anvil fixes that. It installs and runs Windows games on Apple silicon Macs, then
 one while you play: sharper upscaling, extra frames in heavy scenes, even frame pacing,
 working controllers and surround sound.
 
-### [⬇ Download Anvil 0.58.2](https://github.com/yhkyp2ygpv-collab/Mac-Game-Launcher/releases/latest)
+### [⬇ Download Anvil 0.59.0](https://github.com/yhkyp2ygpv-collab/Mac-Game-Launcher/releases/latest)
 
 Free · Apple silicon (M1 or later) · macOS 14 Sonoma or newer · **Open source**
 
@@ -40,6 +40,11 @@ Free · Apple silicon (M1 or later) · macOS 14 Sonoma or newer · **Open source
 - **Steady frame pacing** — even frame times on ProMotion and regular displays, so 40 fps
   feels like 40 and not like stutter.
 - **Auto-Tune** — measures each game on your Mac and picks its settings and engine for you.
+- **Anvil Learn** — learns from every session how each game runs on *your* Mac and what
+  each of its settings costs there, then tunes it after you play and while you're away.
+- **Microsoft's Visual C++ Runtime, put in for you** — for games whose launchers look for it
+  (Unreal Engine games such as Hogwarts Legacy), installed once from Microsoft's own signed
+  installer.
 - **Graphics Prep** — Anvil's upscaling and frame generation are compiled and tested on your
   Mac before the game starts, and the game's shader cache is kept between sessions.
 - **Controllers** — Xbox, PlayStation and Switch Pro controllers, with a built-in tester.
@@ -84,7 +89,7 @@ feedback form below.</sub>
 
 ## Install
 
-1. Download `Anvil-0.58.2.dmg` from
+1. Download `Anvil-0.59.0.dmg` from
    [Releases](https://github.com/yhkyp2ygpv-collab/Mac-Game-Launcher/releases/latest).
 2. Open it and drag **Anvil** into **Applications**.
 3. Open Anvil. If macOS says it "cannot verify" Anvil, go to
@@ -134,7 +139,30 @@ Please leave out personal details such as account names or email addresses.
   release lists the DMG's SHA-256, so you can check your download.
 - **No warranty.** Anvil is provided "as is"; see [LICENSE.txt](LICENSE.txt).
 
-## What's new in 0.58.2
+## What's new in 0.59.0
+
+- **Anvil Learn.** Anvil learns how each game runs on your Mac from every session. Every
+  few seconds of play is kept with how heavy the scene was, so it can tell what a setting
+  costs from where you happened to be playing. It then predicts what each setup would do over
+  the play it has seen. On LEGO Star Wars it was 10.5 points off the real share of time at
+  80 fps, against 16.8 for the old way. It measured the game's reflections at about 1.2 ms a
+  frame on a base M4.
+- **Tuned after every session**, on Automatic. The **Ray Tracing switch on Automatic** keeps
+  reflections on wherever they cost almost nothing in smoothness.
+- **Unreal Engine games:** Anvil learns what each of the game's own quality settings costs
+  from your changes in its menu, and tells you which one to lower first.
+- **While you're away**, Anvil learns from missed sessions and re-prepares graphics after an
+  update, so your next start doesn't wait.
+- **Back after a break:** after the Mac sleeps or a game sits paused, Smooth Motion, FSR 3
+  and frame pacing start fresh instead of waiting out a pause from before.
+- **Hogwarts Legacy and other Unreal games** are read as the game, not their launcher:
+  DirectX 12 with ray tracing on Macs that trace rays in hardware.
+- **No more "Known issues with graphics driver" warning** in Unreal games. The "AMD driver"
+  Unreal checks is really D3DMetal, so the warning is always wrong on a Mac.
+- **A small frame counter again.** Asking for the Mac's heat no longer brings up Apple's
+  full-screen Metal panel. Anvil's counter turns red when the Mac is hot.
+
+## In 0.58.2
 
 - **Games that need Microsoft's Visual C++ Runtime get it.** Hogwarts Legacy stopped at
   "The following component(s) are required to run this program: Microsoft Visual C++
@@ -199,6 +227,7 @@ version number at the bottom of the sidebar.
 
 Older versions stay available in case a new one doesn't suit a game:
 
+- [Anvil 0.58.2 (legacy)](https://github.com/yhkyp2ygpv-collab/Mac-Game-Launcher/releases/tag/v0.58.2)
 - [Anvil 0.58.1 (legacy)](https://github.com/yhkyp2ygpv-collab/Mac-Game-Launcher/releases/tag/v0.58.1)
 - [Anvil 0.58.0 (legacy)](https://github.com/yhkyp2ygpv-collab/Mac-Game-Launcher/releases/tag/v0.58.0)
 - [Anvil 0.57.0 (legacy)](https://github.com/yhkyp2ygpv-collab/Mac-Game-Launcher/releases/tag/v0.57.0)

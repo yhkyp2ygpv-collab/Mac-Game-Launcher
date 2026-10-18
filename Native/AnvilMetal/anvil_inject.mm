@@ -783,6 +783,8 @@ std::atomic<uint64_t> g_latencyMaxUs{0};
 bool   g_overlayOn = false;
 int    g_overlayCorner = 0;        // 0 TL, 1 TR, 2 BL, 3 BR
 int    g_overlayScale = 3;
+bool   g_overlayThermal = false;   // the counter's plate red while the Mac is hot (ANVIL_OVERLAY_THERMAL)
+float  overlayCornerParam();       // the corner for the shaders, plus 4 while the Mac is hot (below g_powerFlags)
 double g_fpsSmoothed = 0.0;        // frames the *game* renders, per second
 double g_lastOverlayTime = 0.0;
 
@@ -1028,6 +1030,10 @@ std::atomic<int>  g_powerFlags{0};
 std::atomic<bool> g_endurance{false};
 
 bool enduranceOn() { return g_endurance.load(std::memory_order_relaxed); }
+float overlayCornerParam() {
+    const bool hot = g_overlayThermal && (g_powerFlags.load(std::memory_order_relaxed) & kHot) != 0;
+    return (float)(std::clamp(g_overlayCorner, 0, 3) + (hot ? 4 : 0));
+}
 bool macHot() { return g_enduranceSetting != 0 && (g_powerFlags.load(std::memory_order_relaxed) & kHot) != 0; }
 
 /// Whether long sessions apply, for this setting and these readings.
@@ -1382,6 +1388,7 @@ void readEnvironment() {
     }
     if (const char* c = getenv("ANVIL_OVERLAY_CORNER")) g_overlayCorner = atoi(c);
     if (const char* z = getenv("ANVIL_OVERLAY_SCALE")) g_overlayScale = std::max(1, atoi(z));
+    if (const char* t = getenv("ANVIL_OVERLAY_THERMAL")) g_overlayThermal = (t[0] == '1');
     if (const char* r = getenv("ANVIL_RENDER_SCALE")) {
         g_renderScale = atof(r);
         // Above 1.0 supersamples: the game is handed a larger drawable and renders
@@ -2149,7 +2156,8 @@ bool drawCounter(id<MTLCommandBuffer> cb, id<MTLTexture> target, int scale = 0) 
     [enc setComputePipelineState:g_counter];
     [enc setTexture:g_counterScratch atIndex:0];
     [enc setTexture:target atIndex:1];
-    simd_float4 params = { 0.0f, (float)fps, (float)s, 0.0f };
+    const bool hot = g_overlayThermal && (g_powerFlags.load() & kHot);
+    simd_float4 params = { 0.0f, (float)fps, (float)s, hot ? 1.0f : 0.0f };
     [enc setBytes:&params length:sizeof(params) atIndex:0];
     simd_uint4 rect = { (uint32_t)box.x, (uint32_t)box.y, (uint32_t)box.w, (uint32_t)box.h };
     [enc setBytes:&rect length:sizeof(rect) atIndex:1];
@@ -2219,7 +2227,7 @@ void processDrawable(id<MTLCommandBuffer> cb, id<CAMetalDrawable> drawable) {
             // rate you see. The counter reports what reached the display.
             (float)((g_frameGen && g_displayedFPS > 0.0) ? g_displayedFPS : g_fpsSmoothed),
             (float)g_overlayScale,
-            wantOverlay ? (float)g_overlayCorner : -1.0f,
+            wantOverlay ? overlayCornerParam() : -1.0f,
         };
         [enc setBytes:&params length:sizeof(params) atIndex:0];
         dispatch(enc, g_finish, target.width, target.height);
@@ -2576,7 +2584,7 @@ bool outputEncode(id<MTLCommandBuffer> cb, id<MTLTexture> input, id<MTLTexture> 
         g_sharpness > 0.001f ? g_sharpness : 0.9f,
         (float)((g_frameGen && g_displayedFPS > 0.0) ? g_displayedFPS : g_fpsSmoothed),
         (float)std::max(1.0, round(g_overlayScale * scaleUp)),
-        overlay ? (float)g_overlayCorner : -1.0f,
+        overlay ? overlayCornerParam() : -1.0f,
     };
     AnvilEncodeFSR(enc, onePass ? kAnvilFSRFused : kAnvilFSRSplit, g_fusedShape,
                    g_fsrEasu, g_finish, g_fsrFused, input, g_outScratch, target, params);
@@ -2621,7 +2629,7 @@ bool fsr3Encode(id<MTLCommandBuffer> cb, id<MTLTexture> input, id<MTLTexture> ta
         native ? g_sharpness * 0.5f : (g_sharpness > 0.001f ? g_sharpness : 0.9f),
         (float)((g_frameGen && g_displayedFPS > 0.0) ? g_displayedFPS : g_fpsSmoothed),
         (float)std::max(1.0, round(g_overlayScale * scaleUp)),
-        g_overlayOn ? (float)g_overlayCorner : -1.0f,
+        g_overlayOn ? overlayCornerParam() : -1.0f,
     };
     id<MTLComputeCommandEncoder> enc = [cb computeCommandEncoder];
     const bool ok = AnvilEncodeFSR3(&g_fsr3, enc, input, target, params);
@@ -2882,9 +2890,28 @@ void steadyDecide(double now) {
     }
 }
 
+void resumeAfterGap(double now, double gap);
+double g_lastPresentCallAt = -1.0;
+/// Seconds on a clock that keeps going while the Mac sleeps. CACurrentMediaTime — every other time here —
+/// stops then, so to it a night asleep is no gap at all, and a pause taken before it is still running after.
+double sleepingClock() { return (double)clock_gettime_nsec_np(CLOCK_MONOTONIC) / 1e9; }
+double g_lastPresentWall = -1.0;
+/// No frame for this long, then frames again: the Mac slept with the game open, or the game sat paused behind
+/// another app (LEGO Star Wars stops drawing there), or a long load. See resumeAfterGap.
+constexpr double kResumeGapSec = 15.0;
+/// After coming back, this long shown as each frame is ready before Steady holds or probes again.
+constexpr double kResumeSettleSec = 8.0;
+
 /// At each present: what the game spent on the frame — from leaving the last present
 /// to arriving at this one, less any wait for a drawable — and where it stands.
 void steadyOnPresent(double callAt) {
+    const double wall = sleepingClock();
+    if (g_lastPresentCallAt > 0.0) {
+        const double gap = std::max(callAt - g_lastPresentCallAt, g_lastPresentWall > 0.0 ? wall - g_lastPresentWall : 0.0);
+        if (gap >= kResumeGapSec) resumeAfterGap(callAt, gap);
+    }
+    g_lastPresentCallAt = callAt;
+    g_lastPresentWall = wall;
     if (g_steadyStartAt < 0.0) {
         g_steadyStartAt = callAt;
         g_steadySettled = g_steadySettleSec <= 0.0;
@@ -2925,6 +2952,39 @@ double g_fsr3HeavierSince = -1.0;       // eased, and the game since down in Smo
 constexpr double kFsr3EaseBackoffMax = 120.0;
 
 bool midWouldEngage(double now, double ownFPS);
+
+/// The game back after a long gap with no frames. What Anvil had backed off from before it — Smooth Motion
+/// paused after frames between cost the game its own (a minute, doubling to ten), FSR 3 kept eased to FSR 1
+/// for up to two minutes, frame generation's slower start after a quick stop, Steady's probe and hold
+/// back-offs — was about the scene and the Mac before the gap, not the ones it comes back to: a ten-minute
+/// pause earned in one fight would otherwise still be running after the Mac slept through dinner (LEGO Star
+/// Wars slept 40 minutes mid-session on 17 October). So it all starts afresh, and the first seconds back are
+/// shown as each frame is ready, nothing held, while the game catches up (a resume often loads and compiles).
+/// What Guardian has learned is kept: it is about this Mac, not the moment.
+void resumeAfterGap(double now, double gap) {
+    const bool midWasPaused = g_midPausedUntil > now;
+    g_midPauseFor = 0.0;
+    if (midWasPaused) g_midPausedUntil = now;
+    g_genEngageBackoff = 0.0;
+    g_probeBackoff = 0.0;
+    g_nextProbeAt = now;
+    g_holdBackoff = 0.0;
+    g_nextHoldAt = now;
+    g_overSince = -1.0;
+    g_fsr3EaseBackoff = 0.0;
+    g_fsr3ShortSince = g_fsr3RoomSince = g_fsr3HeavierSince = -1.0;
+    const bool fsr3WasEased = g_fsr3Eased.load();
+    if (fsr3WasEased) g_fsr3NextBackAt = now;
+    // The settle: Steady's start-up rule again, for kResumeSettleSec.
+    if (g_steadySettleSec > 0.0) {
+        g_steadyStartAt = now - std::max(0.0, g_steadySettleSec - kResumeSettleSec);
+        g_steadySettled = false;
+    }
+    diag("[anvil] back after %.0f s with no frames (the Mac asleep, or the game paused or behind another app) — "
+         "%s%s Steady's back-offs cleared, and the first %.0f s shown as each frame is ready",
+         gap, midWasPaused ? "Smooth Motion's pause lifted, " : "", fsr3WasEased ? "FSR 3 free to come back, " : "",
+         kResumeSettleSec);
+}
 
 /// FSR 3's cost as seen: the GPU's milliseconds a frame a few seconds after it came back,
 /// less those just before, at about the same frame rate.
@@ -3193,7 +3253,7 @@ int midEncode(id<MTLCommandBuffer> cb, id<MTLTexture> shown) {
         0.0f,
         (float)(g_displayedFPS > 0.0 ? g_displayedFPS : g_fpsSmoothed),
         (float)std::max(1.0, round(g_overlayScale * scaleUp)),
-        g_overlayOn ? (float)g_overlayCorner : -1.0f,
+        g_overlayOn ? overlayCornerParam() : -1.0f,
     };
     const simd_float4 game = {(float)g_fsr3.width, (float)g_fsr3.height, (float)(8 * g_fsr3.scale), 0.0f};
     if (!g_midCheckState) {

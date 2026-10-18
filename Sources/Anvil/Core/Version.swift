@@ -6,7 +6,7 @@ import Foundation
 /// always say exactly what it is — the point is to be able to tell whether the app
 /// in front of you includes a given fix.
 enum AnvilVersion {
-    static let current = "0.58.2"
+    static let current = "0.59.0"
     static let build = buildStamp
 
     /// Baked at compile time from the source's own modification date, so two builds
@@ -34,6 +34,30 @@ enum AnvilVersion {
     }
 
     static let releases: [Release] = [
+        Release(
+            version: "0.59.0",
+            date: "17 October 2026",
+            headline: "Anvil Learn: Anvil learns how each game runs on your Mac from every session, and tunes it from that — after you play, while you're away, and when you come back.",
+            fixed: [
+                "Coming back to a game after a break could leave it held back by what happened before it. Smooth Motion pauses itself for a minute — doubling up to ten — after frames between cost the game its own; FSR 3 waits up to two minutes to come back after easing to FSR 1; frame generation and Steady back off too. The clock they use stops while the Mac sleeps, so a pause taken before closing the lid was still running, from where it was, after opening it. Now, when a game's frames come back after 15 seconds or more without any — the Mac asleep, the game paused behind another app, a long load — all of it starts afresh, timed on a clock that keeps going through sleep, and the first 8 seconds back are shown as each frame is ready while the game catches up.",
+                "Games started through Unreal Engine's launcher (a small .exe at the top of the game's folder) were read as the launcher, not the game: Hogwarts Legacy came out as \"its own engine\", with no DirectX 12 — so its ray tracing stayed off on an M4 that traces rays in hardware. Anvil now reads through the launcher to the program that draws (Phoenix/Binaries/Win64/HogwartsLegacy.exe: DirectX 12, Unreal Engine, ray-traced reflections, shadows and ambient occlusion), and DirectX ray tracing is available to it, for its own graphics settings to turn on. If a game like it closes unexpectedly with ray tracing available, Autopilot switches that off for it first.",
+                "Unreal Engine games opened with \"WARNING: Known issues with graphics driver — The installed version of the AMD graphics driver has known issues… Installed: 30.0.15.1233, Recommended: 23.2.1\" (Hogwarts Legacy, 17 October). Unreal checks the graphics driver against a list at every start, and the \"AMD driver\" it finds is D3DMetal, which it can't know and which has nothing to update. Anvil now sets Unreal's own switch for that check, r.WarnOfBadDrivers=0, in the game's Engine.ini before it starts — the one line it writes there.",
+                "An overlay of the frame rate and the Mac's heat filled most of Hogwarts Legacy's screen: \"Thermal pressure\" sent the game to Apple's Metal HUD, which on Game Porting Toolkit 3.0 shows its whole panel whatever is asked for, and at 2× it covered the picture. Anvil's own small counter now shows both — its plate turns red while the Mac is hot — and follows the overlay's Scale; Apple's panel, for anything more, is never drawn bigger than its own size. In a game, ⌘F9 hides Apple's panel.",
+                "0.58.2's log said \"from from Microsoft\", and listed a store's prerequisite twice.",
+            ],
+            added: [
+                "Anvil Learn. Every stretch of every session (about seven seconds each) is kept with how heavy the scene was — the game's main drawing pass, timed on the GPU — and what the game's own GPU work came to. From those, Learn works out what each part of a setup costs at the same scene load — a graphics level, the reflections, each of an Unreal game's own quality settings — by regression across sessions, and predicts what any setup would have done over the play it has seen: the same scenes, the Mac on battery or not, only that setup's cost changed. Setups never played come from their parts. Checked on LEGO Star Wars' twelve sessions of 13–17 October on a base M4, each predicted from the others, it was 10.5 points off the real share of time at 80 fps or more on average, against 16.8 for each setup's own average. It found the game's reflections cost about 1.2 ms a frame there, its own look's other extras about 0.2 ms, and Medium the same as Light.",
+                "After each session, a game on Automatic graphics gets the level Learn finds best for its goal (Light or Medium — the game's own look stays a choice made by hand: its water and heat distortion warp the picture under FSR 3 and Smooth Motion). Older play counts for less (a 30-day half-life), and nothing is thrown away when the game, its engine or macOS changes: what changed shows in the next sessions.",
+                "The Ray Tracing switch on Automatic, for a game Anvil tunes: the game's reflections stay on wherever Learn finds they cost 3 points of the time at the target or less, and come off where they'd cost more. Switched on or off by hand, they stay as set.",
+                "Unreal Engine games: Learn reads the game's own quality settings (shadows, effects, post-processing…) at each start and learns what each costs from the changes made in its menu, then says on the Performance tab which one a step lower would buy the most smoothness. Anvil reads them; it doesn't change them.",
+                "While Anvil is open and nothing has been played for a while — plugged in, the Mac not hot — it learns from any sessions it missed and runs Graphics Prep again for a game whose prep no longer holds after a macOS or Anvil update, so the next start doesn't wait for it.",
+                "\"Learned on This Mac\" on each game's Performance tab: what has been learned, what each setting costs here, and what each setup would do.",
+            ],
+            known: [
+                "Learn learns from sessions played from 0.59 on, which say what they ran with; for a while after the first, there's little to show.",
+                "Most of what's left of Learn's error is what changes from one session to the next that it can't see — a Mac on battery holding an even 80, FSR 3 eased, a scene heavy on the game's own CPU.",
+                "Learn chooses the graphics level and reflections of the games Anvil already tunes that way (LEGO Star Wars); a Unity game's resolution is still Auto-Tune's. Unreal games' own settings are read, learned from and advised on, not set.",
+            ]),
         Release(
             version: "0.58.2",
             date: "17 October 2026",

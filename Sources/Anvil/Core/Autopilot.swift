@@ -87,6 +87,7 @@ final class Autopilot: ObservableObject {
         }
         for game in Library.shared.games { await considerEngineUpgrade(gameID: game.id) }
         CheckUp.shared.watchWhileOpen()
+        LearnStore.shared.watchWhileIdle()
     }
 
     /// Read the game's last session and act on it.
@@ -261,6 +262,16 @@ final class Autopilot: ObservableObject {
                     id: "crash-cause", kind: .advice, title: "Not FSR or frame generation",
                     detail: "\(game.title) closed unexpectedly (code \(o.status)): \(cause). They stay on."
                         + (cause.contains("depth-stencil") ? " Anvil now puts a depth-stencil state like that right before Metal sees it, so it doesn't stop the game again." : ""),
+                    fix: nil))
+            } else if evidence.launchLines.contains(where: { $0.contains("env D3DM_SUPPORT_DXR=1") }), game.rayTracing == nil {
+                // Ray tracing, offered by itself to a DirectX 12 game on a Mac that traces rays in hardware, is the
+                // newest part of such a start (0.59 found Unreal games' through their launcher): off for it first.
+                game.rayTracing = false
+                Library.shared.update(game)
+                AnvilLog.write("autopilot: \(game.title) closed unexpectedly with DirectX ray tracing available — off for it from the next start")
+                done.append(HealthFinding(
+                    id: "dxr-off", kind: .fixed, title: "Ray tracing switched off for this game",
+                    detail: "\(game.title) closed unexpectedly (code \(o.status)) with DirectX ray tracing available to it, which Anvil turns on by itself for a DirectX 12 game on a Mac that traces rays in hardware. Its next start is without it; FSR and frame generation stay as they were. If it closes the same way without it, ray tracing wasn't the cause: switch it back on with the Ray Tracing switch on its Performance tab.",
                     fix: nil))
             } else if fsr3 && config0.mode == .fsr3Every {
                 // The newest part first: FSR 1 for this game from its next start, as every game

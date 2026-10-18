@@ -468,7 +468,8 @@ kernel void anvil_overlay(texture2d<float, access::read>  src   [[texture(0)]],
 
     // Corner placement, inset by a little so it clears rounded window edges.
     const int inset = 8 * scale;
-    const int corner = clamp(int(params.z), 0, 3);
+    const bool hot = int(params.z) >= 4;              // the corner, plus 4 while the Mac is hot
+    const int corner = clamp(int(params.z) & 3, 0, 3);
     const int originX = (corner == 1 || corner == 3) ? (w - boxW - inset) : inset;
     const int originY = (corner >= 2) ? (h - boxH - inset) : inset;
 
@@ -480,6 +481,7 @@ kernel void anvil_overlay(texture2d<float, access::read>  src   [[texture(0)]],
 
     // Dim plate behind the digits so they stay readable over a bright scene.
     colour.rgb *= (1.0 - 0.65 * clamp(params.w, 0.0, 1.0));
+    if (hot) colour.rgb = mix(colour.rgb, float3(0.75, 0.08, 0.05), 0.6);
 
     const int textX = lx - 2 * scale, textY = ly - 2 * scale;
     const int cell = glyphW + gap;
@@ -555,13 +557,16 @@ static inline float3 anvilCounterOver(float3 colour, int2 gid, int w, int h, flo
     const int boxH = glyphH + 4 * oscale;
 
     const int inset = 8 * oscale;
-    const int corner = clamp(int(params.w), 0, 3);
+    // params.w: the corner, plus 4 while the Mac is hot (its plate red).
+    const bool hot = int(params.w) >= 4;
+    const int corner = clamp(int(params.w) & 3, 0, 3);
     const int originX = (corner == 1 || corner == 3) ? (w - boxW - inset) : inset;
     const int originY = (corner >= 2) ? (h - boxH - inset) : inset;
 
     const int lx = gid.x - originX, ly = gid.y - originY;
     if (lx >= 0 && ly >= 0 && lx < boxW && ly < boxH) {
         colour *= 0.35;
+        if (hot) colour = mix(colour, float3(0.75, 0.08, 0.05), 0.6);
         const int textX = lx - 2 * oscale, textY = ly - 2 * oscale;
         const int cell = glyphW + gap;
         const int index = textX / cell;
@@ -637,13 +642,15 @@ kernel void anvil_finish(texture2d<float, access::read>  src   [[texture(0)]],
         const int boxH = glyphH + 4 * oscale;
 
         const int inset = 8 * oscale;
-        const int corner = clamp(int(params.w), 0, 3);
+        const bool hot = int(params.w) >= 4;          // the corner, plus 4 while the Mac is hot
+        const int corner = clamp(int(params.w) & 3, 0, 3);
         const int originX = (corner == 1 || corner == 3) ? (w - boxW - inset) : inset;
         const int originY = (corner >= 2) ? (h - boxH - inset) : inset;
 
         const int lx = int(gid.x) - originX, ly = int(gid.y) - originY;
         if (lx >= 0 && ly >= 0 && lx < boxW && ly < boxH) {
             colour *= 0.35;
+            if (hot) colour = mix(colour, float3(0.75, 0.08, 0.05), 0.6);
             const int textX = lx - 2 * oscale, textY = ly - 2 * oscale;
             const int cell = glyphW + gap;
             const int index = textX / cell;
@@ -686,8 +693,9 @@ kernel void anvil_counter(texture2d<float, access::read>  src    [[texture(0)]],
     const int glyphW = 3 * oscale, gap = oscale;
     const int digits = value >= 1000 ? 4 : (value >= 100 ? 3 : (value >= 10 ? 2 : 1));
 
-    // Dim plate behind the digits so they stay readable over a bright scene.
+    // Dim plate behind the digits so they stay readable over a bright scene; red while the Mac is hot (params.w).
     float3 colour = src.read(gid).rgb * 0.35;
+    if (params.w > 0.5) colour = mix(colour, float3(0.75, 0.08, 0.05), 0.6);
 
     const int textX = int(gid.x) - 2 * oscale, textY = int(gid.y) - 2 * oscale;
     const int cell = glyphW + gap;

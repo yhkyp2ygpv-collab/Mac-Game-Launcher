@@ -115,13 +115,20 @@ enum VCRuntime {
             }
         }
         // Listed by its store, or shipped beside it, as something to install first.
+        // Epic lists a prerequisite by its path and its id ("Binaries/Windows/VC_redist.x64.exe", "VC_redist.x64"):
+        // one reason for it, and none again for the same installer found beside the game.
+        var listed: Set<String> = []
         for item in storePrerequisites where isRedistName(item) {
             arches.insert(arch(ofInstallerNamed: item) ?? own)
-            reasons.append("its store lists \(URL(fileURLWithPath: item.replacingOccurrences(of: "\\", with: "/")).lastPathComponent) as something to install first")
+            let name = URL(fileURLWithPath: item.replacingOccurrences(of: "\\", with: "/")).deletingPathExtension().lastPathComponent.lowercased()
+            if listed.isEmpty { reasons.append("its store lists Microsoft's Visual C++ Redistributable as something to install first") }
+            listed.insert(name)
         }
         for shipped in shippedInstallers(in: folder) {
             arches.insert(arch(ofInstallerNamed: shipped.lastPathComponent) ?? own)
-            if reasons.count < 4 { reasons.append("it comes with \(shipped.lastPathComponent)") }
+            if reasons.count < 4, !listed.contains(shipped.deletingPathExtension().lastPathComponent.lowercased()) {
+                reasons.append("it comes with \(shipped.lastPathComponent)")
+            }
         }
         guard !arches.isEmpty else { return nil }
         return Need(arches: arches, minimum: minimum, reasons: reasons, checksRegistry: checks)
@@ -452,7 +459,7 @@ final class VCRuntimeSetup: ObservableObject {
                     case .success(let v):
                         try? FileManager.default.removeItem(at: VCRuntime.winesOwnMark(container))
                         try? Data(ISO8601DateFormatter().string(from: Date()).utf8).write(to: VCRuntime.installedMark(container))
-                        lines.append(String(format: "visual c++ runtime: Microsoft's %@ (%@) installed into “%@” in %.0f s, from %@ — for %@: %@; its DLLs load ahead of Wine's own there from now on",
+                        lines.append(String(format: "visual c++ runtime: Microsoft's %@ (%@) installed into “%@” in %.0f s, %@ — for %@: %@; its DLLs load ahead of Wine's own there from now on",
                                             v.description, arch.rawValue, container.name, Date().timeIntervalSince(started),
                                             installer.source, game.title, need.reasons.joined(separator: "; ")))
                     case .failure(let error):

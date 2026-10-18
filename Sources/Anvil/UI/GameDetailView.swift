@@ -310,6 +310,8 @@ struct GameDetailView: View {
     private var performance: some View {
         AutoTuneSection(gameID: gameID)
 
+        LearnSection(gameID: gameID)
+
         if let stats = game.wrappedValue.lastSession {
             SwiftUI.Section("Last Session") {
                 LabeledContent("Average", value: String(format: "%.0f fps", stats.averageFPS))

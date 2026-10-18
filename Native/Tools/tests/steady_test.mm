@@ -30,6 +30,7 @@ static double rnd() { rng = rng * 1664525u + 1013904223u; return (rng >> 8) / 16
 // variable-refresh display shows a frame whenever it arrives, up to its top rate.
 static std::vector<Result> simulate(const std::vector<Scene>& scenes, double refreshHz = 120.0, double gridHz = 240.0) {
     g_promotedAt = -1.0; g_gpuMisled = false; g_overSince = -1.0; g_holdBackoff = 0.0; g_nextHoldAt = 0.0;
+    g_lastPresentCallAt = -1.0; g_lastPresentWall = -1.0;
     const double tick = 1.0 / gridHz;
     g_steadyWanted = true; g_vrrState = 1; g_generating = false; g_refreshPeriod = 1.0 / refreshHz;
     g_nextProbeAt = 0; g_lastProbeAt = 0; g_probeBackoff = 0; g_gpuNow = -1; g_gpuNowAt = 0; g_gpuAskedAt = 0;
@@ -759,6 +760,43 @@ int main() {
         g_refreshPeriod = 1.0 / 144.0;
         CHECK(steadyHoldMinGap() > g_refreshPeriod, "144 Hz: more than a refresh (%.4f)", steadyHoldMinGap());
         g_refreshPeriod = 1.0 / 120.0;
+    }
+
+    // 0.59: back after a long gap with no frames, what Anvil had backed off from starts afresh.
+    printf("Back after a gap:\n");
+    {
+        const double settleWas = g_steadySettleSec;
+        g_steadySettleSec = 30.0;
+        g_lastPresentCallAt = -1.0; g_lastPresentWall = -1.0;
+        double t = 1000.0;
+        auto frames = [&](double seconds) { for (double end = t + seconds; t < end; t += 1.0 / 60.0) steadyOnPresent(t); };
+        frames(40.0);
+        const bool settledBefore = g_steadySettled;
+        // Mid-fight: Smooth Motion paused for ten minutes, FSR 3 eased with a two-minute back-off, Steady backed off.
+        g_midPauseFor = 600.0; g_midPausedUntil = t + 600.0;
+        g_genEngageBackoff = 120.0;
+        g_fsr3Eased = true; g_fsr3EaseBackoff = 120.0; g_fsr3NextBackAt = t + 120.0;
+        g_holdBackoff = 60.0; g_nextHoldAt = t + 60.0; g_probeBackoff = 60.0; g_nextProbeAt = t + 60.0;
+        t += 10.0;                      // ten seconds without a frame: a load, not a break
+        frames(1.0);
+        CHECK(g_midPausedUntil > t + 500.0 && g_holdBackoff == 60.0, "10 s with no frames changes nothing");
+        CHECK(settledBefore && g_steadySettled, "nor restarts the settle");
+        t += 20.0;                      // twenty: the game paused behind another app, the Mac asleep
+        steadyOnPresent(t);
+        CHECK(g_midPausedUntil <= t && g_midPauseFor == 0.0, "Smooth Motion's ten-minute pause lifted (%.0f s left)", g_midPausedUntil - t);
+        CHECK(g_genEngageBackoff == 0.0, "frame generation's start back-off cleared");
+        CHECK(g_fsr3EaseBackoff == 0.0 && g_fsr3NextBackAt <= t, "FSR 3 free to come back at once");
+        CHECK(g_holdBackoff == 0.0 && g_nextHoldAt <= t && g_probeBackoff == 0.0 && g_nextProbeAt <= t, "Steady's back-offs cleared");
+        CHECK(!g_steadySettled, "the first seconds back shown as ready");
+        frames(kResumeSettleSec + 0.5);
+        CHECK(g_steadySettled, "and settled again %.0f s later, not the session start's 30", kResumeSettleSec);
+        // The Mac asleep: the clock every other timing uses stops, so the gap is read on one that doesn't.
+        g_lastPresentWall = sleepingClock() - 2400.0;
+        g_midPauseFor = 600.0; g_midPausedUntil = t + 600.0;
+        steadyOnPresent(t + 1.0 / 60.0);
+        CHECK(g_midPausedUntil <= t + 0.1, "40 minutes asleep is a gap, though CACurrentMediaTime barely moved");
+        g_fsr3Eased = false; g_steadySettleSec = settleWas; g_steadySettled = settleWas <= 0.0;
+        g_lastPresentCallAt = -1.0; g_lastPresentWall = -1.0;
     }
 
     // A picture's shape: the window's when within 2%, else the game's own, whole.

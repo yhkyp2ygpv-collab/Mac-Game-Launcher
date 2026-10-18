@@ -2,12 +2,32 @@
 // leaving graphics alone for a game that closed before its first frame.
 //
 // Run with a home of its own — nothing here may touch the real support folder:
-//   CFFIXED_USER_HOME=$T/home HOME=$T/home VCRuntimeTest <hogwarts.exe> <fnaf.exe> <VC_redist.x64.exe> \
+//   CFFIXED_USER_HOME=$T/home HOME=$T/home VCRuntimeTest <a DLL that uses msvcp140> <fnaf.exe> <VC_redist.x64.exe> \
 //       <tampered.exe> <wine builtin notepad.exe> <system.reg with the runtime> <real Epic prefix> \
 //       <real game.log> [install]
 // Before running: $T/home/Library/Application Support/Anvil/Epic/installed.json (a copy of the real one),
 // and for "install" a link $T/home/Library/Application Support/Anvil/Runtimes → the real Runtimes.
 import Foundation
+
+
+/// A stand-in Unreal Engine game, made from any two small Windows programs: its launcher at the top of its folder
+/// (reading Microsoft's Visual C++ key, as Unreal's does) beside Engine/, and the game under Project/Binaries/Win64
+/// (using the runtime's DLLs, naming DirectX 12 and Unreal's ray tracing). Hogwarts Legacy's own files were used
+/// until it was uninstalled on 17 October; this has the same layout and the same tells.
+func makeStandInUnrealGame(launcherFrom: URL, programFrom: URL) -> URL {
+    let fm = FileManager.default
+    let root = fm.temporaryDirectory.appendingPathComponent("unreal-\(UUID().uuidString)/StandIn", isDirectory: true)
+    let bin = root.appendingPathComponent("Phoenix/Binaries/Win64", isDirectory: true)
+    try? fm.createDirectory(at: bin, withIntermediateDirectories: true)
+    try? fm.createDirectory(at: root.appendingPathComponent("Engine/Binaries", isDirectory: true), withIntermediateDirectories: true)
+    var launcher = (try? Data(contentsOf: launcherFrom)) ?? Data()
+    launcher += Data("SOFTWARE\\Microsoft\\VisualStudio\\14.0\\VC\\Runtimes\\x64".utf16.flatMap { [UInt8($0 & 0xFF), UInt8($0 >> 8)] })
+    try? launcher.write(to: root.appendingPathComponent("HogwartsLegacy.exe"))
+    var program = (try? Data(contentsOf: programFrom)) ?? Data()
+    program += Data("\u{0}d3d12.dll\u{0}D3D12CreateDevice\u{0}r.RayTracing\u{0}".utf8)
+    try? program.write(to: bin.appendingPathComponent("HogwartsLegacy.exe"))
+    return root.appendingPathComponent("HogwartsLegacy.exe")
+}
 
 @main
 struct VCRuntimeTest {
@@ -21,9 +41,11 @@ struct VCRuntimeTest {
     static func main() async {
         let a = CommandLine.arguments
         guard a.count >= 9 else { print("usage: see header"); exit(2) }
-        let hogwarts = URL(fileURLWithPath: a[1]), fnaf = URL(fileURLWithPath: a[2])
+        let fnaf = URL(fileURLWithPath: a[2])
         let redist = URL(fileURLWithPath: a[3]), tampered = URL(fileURLWithPath: a[4]), notepad = URL(fileURLWithPath: a[5])
+        // a[6]: system.reg of a setup Anvil installed the runtime into; a[7]: a setup without it.
         let withRuntimeReg = URL(fileURLWithPath: a[6]), epicPrefix = URL(fileURLWithPath: a[7]), gameLog = URL(fileURLWithPath: a[8])
+        let hogwarts = makeStandInUnrealGame(launcherFrom: notepad, programFrom: URL(fileURLWithPath: a[1]))
         let install = a.count > 9 && a[9] == "install"
         let realHome = getpwuid(getuid()).map { String(cString: $0.pointee.pw_dir) } ?? "/"
         check(RuntimeManager.support.path.hasPrefix(NSHomeDirectory()) && !RuntimeManager.support.path.hasPrefix(realHome + "/Library"),
@@ -41,16 +63,16 @@ struct VCRuntimeTest {
         let f = VCRuntime.need(executable: fnaf)
         check(f == nil, "Five Nights at Freddy's: Into the Pit (Unity, runtime built in) needs nothing: \(f?.reasons ?? [])")
         let byStore = VCRuntime.need(executable: notepad, storePrerequisites: ["Binaries/Windows/VC_redist.x64.exe", "VC_redist.x64"])
-        check(byStore?.arches == [.x64], "a store's listed prerequisite counts: \(byStore?.reasons ?? [])")
+        check(byStore?.arches == [.x64] && byStore?.reasons.count == 1, "a store's listed prerequisite counts, said once: \(byStore?.reasons ?? [])")
         check(VCRuntime.need(executable: notepad) == nil, "Wine's own notepad needs nothing")
         check(VCRuntime.registryCheck(in: Data("nothing here".utf8)) == nil, "no key name, no check")
 
         print("— what a container has")
         let reg = (try? String(contentsOf: withRuntimeReg, encoding: .utf8)) ?? ""
         let v = VCRuntime.keyVersion(reg, endingWith: "microsoft\\\\visualstudio\\\\14.0\\\\vc\\\\runtimes\\\\x64]")
-        check(v == VCRuntime.Version(major: 14, minor: 32, build: 31332, rebuild: 0), "the key Microsoft's installer wrote: \(v?.description ?? "-")")
+        check(v.map { $0 >= .unrealMinimum && $0.major == 14 } == true, "the key Microsoft's installer wrote: \(v?.description ?? "-")")
         check(VCRuntime.installed(prefix: withRuntimeReg.deletingLastPathComponent())[.x64] == v, "and its DLLs are Microsoft's own there")
-        check(VCRuntime.installed(prefix: epicPrefix).isEmpty, "the Epic Games setup today: Wine's own files, no key")
+        check(VCRuntime.installed(prefix: epicPrefix).isEmpty, "a setup without it: Wine's own files, no key")
         check(!VCRuntime.isMicrosoftsOwn(epicPrefix.appendingPathComponent("drive_c/windows/system32/vcruntime140.dll")),
               "Wine's vcruntime140 is told from Microsoft's")
         let old = "[Software\\\\Microsoft\\\\VisualStudio\\\\14.0\\\\VC\\\\Runtimes\\\\x64] 1\n\"Installed\"=dword:00000001\n\"Major\"=dword:0000000e\n\"Minor\"=dword:00000010\n"
@@ -98,12 +120,12 @@ struct VCRuntimeTest {
 
         print("— Autopilot: closed before the first frame")
         let text = (try? String(contentsOf: gameLog, encoding: .utf8)) ?? ""
-        func session(_ title: String) -> SessionEvidence {
-            let r = text.range(of: "=== \(title) — ", options: .backwards)!
+        func session(_ title: String, startedAt: String = "") -> SessionEvidence {
+            let r = text.range(of: "=== \(title) — \(startedAt)", options: .backwards)!
             let lines = text[r.upperBound...].split(separator: "\n").dropFirst().prefix { !$0.hasPrefix("=== ") }
             return SessionEvidence(startedAt: nil, gameLines: Array(lines), launchLines: [], windows: lines.compactMap { FrameLog.parse($0) })
         }
-        check(!session("Hogwarts Legacy").drewFrames, "Hogwarts Legacy's 17 October start drew nothing")
+        check(!session("Hogwarts Legacy", startedAt: "2026-10-18T05:04:09Z").drewFrames, "Hogwarts Legacy's 17 October start drew nothing")
         check(session("LEGO® Star Wars™: The Skywalker Saga").drewFrames, "LEGO's last session drew")
         let logs = FileManager.default.temporaryDirectory.appendingPathComponent("drew-\(UUID().uuidString).log")
         try? """

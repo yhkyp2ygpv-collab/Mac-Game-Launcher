@@ -905,6 +905,25 @@ final class Tuner: ObservableObject {
         restoreGraphicsNow(g)
     }
 
+    /// Learn's choice of graphics level for a game on Automatic, made after a session from everything played
+    /// (LearnStore.adjust): kept as Auto-Tune's result, so the page and the next start both show it.
+    func adoptLearned(_ level: GraphicsLevel, reason: String, for game: Game) {
+        guard let container = Library.shared.container(id: game.containerID) else { return }
+        let goal = game.tuneGoal ?? states[game.id]?.goal ?? .smooth
+        var state = states[game.id] ?? TuneState(goal: goal, mode: .finished, space: space(for: game, container: container, goal: goal))
+        guard !state.isActive else { return }
+        let setup = TuneSetup(graphics: level, halfResolution: nil, pacing: state.winner?.pacing ?? goal.pacing)
+        state.mode = .finished
+        state.winner = setup
+        state.winnerReason = "learned: " + reason
+        state.finishedAt = Date()
+        state.fingerprint = fingerprint(for: game, container: container)
+        state.note("Learn chose \(setup.title): \(reason).")
+        states[game.id] = state
+        save(game.id)
+        restoreGraphicsNow(game)
+    }
+
     private func adoptPacing(_ pacing: Int, for game: Game) {
         guard var g = Library.shared.games.first(where: { $0.id == game.id }),
               var c = Library.shared.container(id: g.containerID) else { return }

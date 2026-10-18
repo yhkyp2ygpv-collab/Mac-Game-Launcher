@@ -230,6 +230,17 @@ enum GameTuning {
             + ". Its water and heat distortion stays off at Light and Medium."
     }
 
+    /// Whether a start at `level` has the game's reflections on, as `rayTracingPlan` works it out; nil for a game
+    /// with none Anvil knows of. What Learn files the session under.
+    static func reflectionsOn(_ game: Game, in container: Container, level: GraphicsLevel) -> Bool? {
+        guard let profile = profile(for: game), let rt = profile.rayTraced else { return nil }
+        let file = settingsFile(for: profile, in: container)
+        let now = file.flatMap { try? String(contentsOf: $0, encoding: .utf8) }.map { Self.values(in: $0) } ?? [:]
+        let set = Self.wanted(profile, level: level, rayTracing: game.rayTracing, tier: DeviceProfile.current?.tier,
+                              values: now, original: loadRecord(for: game)?.original ?? [:])
+        return !(set.contains { $0.key == rt.enabled && $0.value == "0" } || (game.rayTracing == nil && now[rt.enabled] == "0"))
+    }
+
     static func profile(for game: Game) -> Profile? {
         let exe = game.executableURL.lastPathComponent.lowercased()
         return profiles.first { $0.executable.lowercased() == exe }

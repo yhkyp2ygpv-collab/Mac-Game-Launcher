@@ -19,6 +19,8 @@ enum Housekeeping {
         fsr3EverywhereOnce()
         restoreMisjudgedFsr3Once()
         restoreOnePassBeforeFirstFrameOnce()
+        // Sessions Learn missed — Anvil closed while a game ran — learned from game.log.
+        Task { await LearnStore.shared.catchUp() }
         realFramesOnce()
         trueShapeOnce()
         offlineHistoryOnce()

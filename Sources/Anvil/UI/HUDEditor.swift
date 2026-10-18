@@ -52,9 +52,9 @@ struct HUDEditor: View {
                 Slider(value: $config.scale, in: 0.5...3.0, step: 0.1)
             }
 
-            Text(config.widgets == [.fps]
-                 ? "Anvil draws this one itself: a frame-rate counter and nothing else. Apple's Metal HUD reports everything it knows — device, Rosetta mode, memory, draw counts — and has no supported way to ask for less, so asking it for “FPS only” still fills the corner of the screen."
-                 : "Anything beyond the frame rate has to come from Apple's Metal HUD, which shows its full panel — device, Rosetta mode, memory and draw counts included. Select only “Frames per second” to get Anvil's minimal counter instead.")
+            Text(config.anvilDrawsIt
+                 ? "Anvil draws this one itself: a small frame-rate counter" + (config.widgets.contains(.thermal) ? " whose plate turns red while the Mac is hot" : "") + ", and nothing else. Apple's Metal HUD reports everything it knows — device, Rosetta mode, memory, draw counts — and has no supported way to ask for less."
+                 : "Anything beyond the frame rate and the Mac's heat has to come from Apple's Metal HUD, which shows its full panel — device, Rosetta mode, memory and draw counts included — at no more than its own size. Choose only “Frames per second” and “Thermal pressure” for Anvil's small counter instead. In a game, ⌘F9 hides Apple's panel.")
                 .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
         }
     }
