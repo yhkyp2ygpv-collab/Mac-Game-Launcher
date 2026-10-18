@@ -106,6 +106,17 @@ struct SessionEvidence {
     /// The words on its screen, from the pictures Anvil kept of it (ScreenReader).
     var screens: [ScreenReader.Shot] = []
 
+    /// Whether the game got as far as drawing: its first frame reached Anvil's presenter, where FSR,
+    /// frame generation and everything else Anvil does to a picture starts. A game that closed before
+    /// that — Hogwarts Legacy's launcher, missing Microsoft's Visual C++ Runtime, on 17 October — can't
+    /// have been upset by any of them.
+    var drewFrames: Bool {
+        !windows.isEmpty || gameLines.contains { line in
+            line.contains("[anvil] FSR to the display: the game draws") || line.contains("-> ACTIVE")
+                || line.contains("[anvil] displayed ") || (line.contains("[anvil] graphics: ") && line.contains(" sets a layer to "))
+        }
+    }
+
     /// The last session of `title` in both logs. Nil when game.log has none.
     static func read(title: String, gameLog: URL, launchLog: URL, outcome: Outcome? = nil) -> SessionEvidence? {
         guard let gameText = try? String(contentsOf: gameLog, encoding: .utf8),

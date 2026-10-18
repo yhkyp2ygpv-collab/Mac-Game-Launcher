@@ -224,8 +224,37 @@ final class Autopilot: ObservableObject {
             let onePass = evidence.launchLines.contains { $0.contains("env ANVIL_FSR_PASS=fused") }
             let fsr3 = evidence.launchLines.contains { $0.contains("env ANVIL_FSR3=1") }
             let config0 = game.upscalerOverride ?? container.upscaler
-            // Not when the logs name a cause they have nothing to do with: said, and kept on.
-            if (generated || upscaled || metalFX || fsr3),
+            let vcNeed = VCRuntime.need(for: game)
+            if !evidence.drewFrames {
+                // Closed before its first frame: nothing of Anvil's that works on pictures had started, so
+                // nothing graphical is switched off for it. Until 0.58.2 Hogwarts Legacy lost FSR's one pass
+                // for its launcher's "Microsoft Visual C++ Runtime" message.
+                if let vcNeed, !VCRuntime.missing(vcNeed, in: container).isEmpty {
+                    AnvilLog.write("autopilot: \(game.title) closed before its first frame (code \(o.status)) — it needs Microsoft's Visual C++ Runtime, which “\(container.name)” doesn't have yet: installing it")
+                    Task { _ = await VCRuntimeSetup.shared.ensureAll() }
+                    done.append(HealthFinding(
+                        id: "vc-runtime", kind: .fixed, title: "Microsoft's Visual C++ Runtime put in for this game",
+                        detail: "\(game.title) closed before it showed anything (code \(o.status))" + (o.status == 41 ? ", the code Unreal Engine's launcher ends with when a component it needs is missing" : "")
+                            + ": " + vcNeed.reasons.joined(separator: "; ") + ". Anvil installs Microsoft's own Visual C++ Redistributable into “\(container.name)” once, checked as signed by Microsoft, before the next start. FSR and frame generation weren't the cause and stay as they were.",
+                        fix: nil))
+                } else if VCRuntime.loadsMicrosofts(container), o.seconds < 120,
+                          evidence.launchLines.contains(where: { $0.contains("env WINEDLLOVERRIDES=") && $0.contains("vcruntime140") }),
+                          let at = VCRuntime.installedAt(container), VCRuntime.drewBefore(title: game.title, installedAt: at) {
+                    // It ran before Microsoft's runtime was put in, and doesn't start with it: Wine's own again.
+                    VCRuntime.useWinesOwn(container, why: "\(game.title) closed before its first frame after the install")
+                    AnvilLog.write("autopilot: \(game.title) closed before its first frame (code \(o.status)) with Microsoft's Visual C++ Runtime loaded — it ran on Wine's own before, so “\(container.name)” goes back to Wine's from the next start")
+                    done.append(HealthFinding(
+                        id: "vc-runtime-wine", kind: .fixed, title: "Back to Wine's own Visual C++ files",
+                        detail: "\(game.title) closed before it showed anything (code \(o.status)) with Microsoft's Visual C++ Runtime, which it ran without before. Its next start uses Wine's own, as before; Microsoft's stays installed for the games whose launchers look for it.",
+                        fix: nil))
+                } else {
+                    AnvilLog.write("autopilot: \(game.title) closed before its first frame (code \(o.status)) — before FSR or frame generation start, so they stay as they were")
+                    done.append(HealthFinding(
+                        id: "closed-before-frame", kind: .advice, title: "Closed before it showed anything",
+                        detail: "\(game.title) closed \(Int(o.seconds)) s after it started (code \(o.status)), before its first frame. FSR, frame generation and Anvil's other picture work start with that frame, so they weren't the cause and stay as they were. A message from the game itself, if it showed one, says what it wanted.",
+                        fix: nil))
+                }
+            } else if (generated || upscaled || metalFX || fsr3),
                let cause = GameDoctor.crashCause(launchLines: evidence.launchLines, gameLines: evidence.gameLines) {
                 AnvilLog.write("autopilot: \(game.title) closed unexpectedly — \(cause); FSR and frame generation stay on")
                 done.append(HealthFinding(

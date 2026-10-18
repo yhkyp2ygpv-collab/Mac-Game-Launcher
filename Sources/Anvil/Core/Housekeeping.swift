@@ -18,6 +18,7 @@ enum Housekeeping {
         restoreMisjudgedOnce()
         fsr3EverywhereOnce()
         restoreMisjudgedFsr3Once()
+        restoreOnePassBeforeFirstFrameOnce()
         realFramesOnce()
         trueShapeOnce()
         offlineHistoryOnce()
@@ -305,6 +306,21 @@ enum Housekeeping {
     /// Epic Online Services on its stack; FSR 3 was switched off for it, and Smooth Motion — made from FSR 3's pictures
     /// — went with it for the next two hours. Read from the launch log, so only a switch-off with a cause on record
     /// is undone.
+    /// Once, in 0.58.2: FSR's one pass back for a game Autopilot took it from when it closed before
+    /// drawing anything. Hogwarts Legacy's launcher stopped at "Microsoft Visual C++ Runtime" on 17
+    /// October (code 41), and Autopilot put FSR back to two passes for it — FSR hadn't started yet.
+    static func restoreOnePassBeforeFirstFrameOnce() {
+        let key = "restoreOnePassBeforeFirstFrame-0.58.2"
+        guard !UserDefaults.standard.bool(forKey: key), !Library.shared.games.isEmpty else { return }
+        UserDefaults.standard.set(true, forKey: key)
+        for game in Library.shared.games where GraphicsPrep.stored(gameID: game.id)?.onePassOff == true {
+            // Only a game that has never drawn a frame through Anvil: no session of it says FSR ran.
+            guard !VCRuntime.drewBefore(title: game.title, installedAt: .distantFuture) else { continue }
+            GraphicsPrep.onePassBackOn(gameID: game.id)
+            AnvilLog.write("graphics prep: \(game.title) — FSR's one pass back: it was turned off when the game closed before its first frame, before FSR starts")
+        }
+    }
+
     static func restoreMisjudgedFsr3Once() {
         let key = "restoreMisjudgedFsr3-0.58.0"
         guard !UserDefaults.standard.bool(forKey: key), !Library.shared.games.isEmpty else { return }

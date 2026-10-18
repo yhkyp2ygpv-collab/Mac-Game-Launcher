@@ -79,6 +79,7 @@ final class CheckUp: ObservableObject {
         var out: [Item] = []
         out += macChecks()
         out += gameFileChecks()
+        out += await runtimeChecks()
         out += await epicChecks()
         out += offlineChecks()
         out += await saveChecks()
@@ -124,6 +125,36 @@ final class CheckUp: ObservableObject {
         }
         return [Item(id: "games", state: .problem, title: "\(missing.count == 1 ? "A game's" : "\(missing.count) games'") program can't be found",
                      detail: "\(missing.joined(separator: ", ")): moved, renamed or uninstalled. Point the game at its program again from its settings, or install it again.")]
+    }
+
+    // MARK: Microsoft's Visual C++ Runtime
+
+    /// Every game that needs Microsoft's Visual C++ Runtime has it in its container: put in here,
+    /// with no game running, rather than on the first press of Play (VCRuntime).
+    private func runtimeChecks() async -> [Item] {
+        let games = Library.shared.games.filter { $0.exists && !SteamSupport.isSteamClient($0) }
+        let needing = games.compactMap { g -> (Game, VCRuntime.Need)? in VCRuntime.need(for: g).map { (g, $0) } }
+        guard !needing.isEmpty else { return [] }
+        let done = Launcher.shared.sessions.isEmpty ? await VCRuntimeSetup.shared.ensureAll() : []
+        let missing = needing.filter { g, need in
+            Library.shared.container(id: g.containerID).map { !VCRuntime.missing(need, in: $0).isEmpty } ?? false
+        }
+        var out: [Item] = []
+        let installed = done.filter { $0.contains(" installed into ") }
+        if !installed.isEmpty {
+            out.append(Item(id: "vc-runtime", state: .fixed, title: "Microsoft's Visual C++ Runtime installed",
+                            detail: "Into the Windows setups of " + needing.filter { g, _ in !missing.contains { $0.0.id == g.id } }.map(\.0.title).joined(separator: ", ")
+                                + " — Microsoft's own installer, checked as signed by Microsoft. Games whose launchers look for it now start."))
+        }
+        if !missing.isEmpty {
+            let why = done.first { !$0.contains(" installed into ") }.map { ": " + ($0.components(separatedBy: "but ").last ?? $0) } ?? "."
+            out.append(Item(id: "vc-runtime-missing", state: .problem, title: "Microsoft's Visual C++ Runtime still to install",
+                            detail: "\(missing.map(\.0.title).joined(separator: ", ")) need\(missing.count == 1 ? "s" : "") it, and Anvil installs it before their next start" + why))
+        } else if installed.isEmpty {
+            out.append(Item(id: "vc-runtime", state: .ok, title: "Microsoft's Visual C++ Runtime in place",
+                            detail: "For \(needing.map(\.0.title).joined(separator: ", ")), the games here that use it."))
+        }
+        return out
     }
 
     // MARK: Epic

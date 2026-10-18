@@ -370,7 +370,7 @@ final class SaveTransfer: ObservableObject {
         try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
             let p = Process()
             p.executableURL = runtime.wine64
-            p.arguments = ["regedit", "C:\\anvil-import.reg"]
+            p.arguments = ["regedit", "/S", "C:\\anvil-import.reg"]   // silently: no window for the player to close
             var env = ProcessInfo.processInfo.environment
             env["WINEPREFIX"] = container.prefixURL.path
             env["WINEDEBUG"] = "-all"

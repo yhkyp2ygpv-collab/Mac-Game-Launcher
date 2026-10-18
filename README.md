@@ -7,7 +7,7 @@ Anvil fixes that. It installs and runs Windows games on Apple silicon Macs, then
 one while you play: sharper upscaling, extra frames in heavy scenes, even frame pacing,
 working controllers and surround sound.
 
-### [⬇ Download Anvil 0.58.1](https://github.com/yhkyp2ygpv-collab/Mac-Game-Launcher/releases/latest)
+### [⬇ Download Anvil 0.58.2](https://github.com/yhkyp2ygpv-collab/Mac-Game-Launcher/releases/latest)
 
 Free · Apple silicon (M1 or later) · macOS 14 Sonoma or newer · **Open source**
 
@@ -84,7 +84,7 @@ feedback form below.</sub>
 
 ## Install
 
-1. Download `Anvil-0.58.1.dmg` from
+1. Download `Anvil-0.58.2.dmg` from
    [Releases](https://github.com/yhkyp2ygpv-collab/Mac-Game-Launcher/releases/latest).
 2. Open it and drag **Anvil** into **Applications**.
 3. Open Anvil. If macOS says it "cannot verify" Anvil, go to
@@ -134,7 +134,20 @@ Please leave out personal details such as account names or email addresses.
   release lists the DMG's SHA-256, so you can check your download.
 - **No warranty.** Anvil is provided "as is"; see [LICENSE.txt](LICENSE.txt).
 
-## What's new in 0.58.1
+## What's new in 0.58.2
+
+- **Games that need Microsoft's Visual C++ Runtime get it.** Hogwarts Legacy stopped at
+  "The following component(s) are required to run this program: Microsoft Visual C++
+  Runtime": Unreal Engine's launcher looks for the registry key Microsoft's installer writes,
+  which Wine's own files don't. Anvil now finds every game that needs the runtime and runs
+  **Microsoft's own installer** in that game's Windows setup, once and quietly, after
+  checking that it is signed by Microsoft.
+- **No more "Registry Editor" message** before Five Nights at Freddy's: Into the Pit (and
+  other Unity games on the newer engine). Anvil wrote one of its own settings wrongly, and
+  Wine 9 said so in a window.
+- **Nothing graphical is switched off for a game that closed before drawing anything.**
+
+## In 0.58.1
 
 - **Anvil is open source.** Its full source code is in this repository under the
   [Anvil Source License](LICENSE.txt) — see [Build from source](#build-from-source). Settings ›
@@ -186,6 +199,7 @@ version number at the bottom of the sidebar.
 
 Older versions stay available in case a new one doesn't suit a game:
 
+- [Anvil 0.58.1 (legacy)](https://github.com/yhkyp2ygpv-collab/Mac-Game-Launcher/releases/tag/v0.58.1)
 - [Anvil 0.58.0 (legacy)](https://github.com/yhkyp2ygpv-collab/Mac-Game-Launcher/releases/tag/v0.58.0)
 - [Anvil 0.57.0 (legacy)](https://github.com/yhkyp2ygpv-collab/Mac-Game-Launcher/releases/tag/v0.57.0)
 - [Anvil 0.55.0 (legacy)](https://github.com/yhkyp2ygpv-collab/Mac-Game-Launcher/releases/tag/v0.55.0)

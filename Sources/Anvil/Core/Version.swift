@@ -6,7 +6,7 @@ import Foundation
 /// always say exactly what it is — the point is to be able to tell whether the app
 /// in front of you includes a given fix.
 enum AnvilVersion {
-    static let current = "0.58.1"
+    static let current = "0.58.2"
     static let build = buildStamp
 
     /// Baked at compile time from the source's own modification date, so two builds
@@ -34,6 +34,22 @@ enum AnvilVersion {
     }
 
     static let releases: [Release] = [
+        Release(
+            version: "0.58.2",
+            date: "17 October 2026",
+            headline: "Games that need Microsoft's Visual C++ Runtime get it, and Five Nights at Freddy's: Into the Pit starts without a Registry Editor message.",
+            fixed: [
+                "Hogwarts Legacy stopped at \"The following component(s) are required to run this program: Microsoft Visual C++ Runtime\". Its launcher — Unreal Engine's, the small HogwartsLegacy.exe in its top folder — reads the key Microsoft's installer writes (HKLM\\SOFTWARE\\Microsoft\\VisualStudio\\14.0\\VC\\Runtimes\\x64, 14.24.28127.4 or later) before it starts the game, and Wine's own Visual C++ files don't write it. Epic's launcher would have run the installer first; legendary only does on Windows. Anvil now finds the games that need Microsoft's Visual C++ Runtime — a launcher that checks for it, a store that lists it as a prerequisite (Epic does for Cat Quest II), an installer shipped beside the game — and runs Microsoft's own installer in their Windows setup, quietly, once: before the game's next start, or straight away at the check-up. It is the one Microsoft publishes, kept current from Microsoft's site, or one a game already brought; either way it runs only once its signature checks out as Microsoft's (Authenticode: the program's digest, the signature over it, and Microsoft's Code Signing PCA 2011, which Anvil knows by its fingerprint). Its DLLs then load ahead of Wine's own in that setup, as on Windows; if a game that ran before stops starting with them, it goes back to Wine's.",
+                "Five Nights at Freddy's: Into the Pit showed \"regedit: Unable to open the registry key 'HKEY_CURRENT_USER\\\\Software\\\\Mega Cat Studios\\\\FNaFIntoThePit'\" before it started. That was Anvil: before a Unity game's start it writes the game's fullscreen setting with Wine's regedit, and it doubled the backslashes in the key's name, which Wine 7.7 let through and Wine 9 doesn't — and without its quiet switch regedit put the error in a window the start waited behind. The name is written as it should be, regedit runs quietly everywhere Anvil uses it, and the setting is written once more for every Unity game, since regedit said it had worked when it hadn't.",
+                "When a game closed before it had drawn anything, Autopilot could still blame Anvil's picture work: Hogwarts Legacy's launcher message (exit code 41) took FSR's one pass away from it. FSR, frame generation and the rest start with a game's first frame, so a game that closed before one keeps them as they were; FSR's one pass is back for Hogwarts Legacy.",
+                "A game whose own upscaler FSR 3 reaches through (Hogwarts Legacy) lost the DirectX library choices every other game starts with: the upscaler's replaced them instead of joining them.",
+            ],
+            added: [
+                "The check-up has a line for Microsoft's Visual C++ Runtime: in place for the games that use it, put in, or still to install and why.",
+            ],
+            known: [
+                "Microsoft's installer goes into the Windows setup of the games that need it; Five Nights at Freddy's: Into the Pit carries the runtime inside itself and doesn't.",
+            ]),
         Release(
             version: "0.58.1",
             date: "17 October 2026",

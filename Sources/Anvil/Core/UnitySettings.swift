@@ -75,7 +75,8 @@ enum UnitySettings {
         // Already applied? Then this launch costs nothing.
         let stamp = container.prefixURL
             .appendingPathComponent(".anvil-unity-\(game.id.uuidString)")
-        let want = "\(mode.rawValue)|\(pixels.width)x\(pixels.height)"
+        // "2|": written by 0.58.2's import. A stamp from before it may stand for an import Wine 9 turned away.
+        let want = "2|\(mode.rawValue)|\(pixels.width)x\(pixels.height)"
         if let have = try? String(contentsOf: stamp, encoding: .utf8),
            have.trimmingCharacters(in: .whitespacesAndNewlines) == want {
             return false
@@ -84,10 +85,14 @@ enum UnitySettings {
         let path = "HKEY_CURRENT_USER\\Software\\\(id.company)\\\(id.product)"
         func dword(_ v: Int) -> String { String(format: "dword:%08x", v) }
 
+        // A key's name goes in its brackets as it is: only values are escaped in a .reg file. Until
+        // 0.58.2 the backslashes here were doubled. Wine 7.7's regedit let that through; Wine 9's
+        // looked for "Software\\Mega Cat Studios\\…", couldn't open it, and said so in a window
+        // that held Five Nights at Freddy's: Into the Pit's start until it was closed (17 October).
         var body = """
         Windows Registry Editor Version 5.00
 
-        [\(path.replacingOccurrences(of: "\\", with: "\\\\"))]
+        [\(path)]
         "\(Key.fullscreenMode)"=\(dword(mode.rawValue))
         "\(Key.isFullscreen)"=\(dword(mode == .windowed ? 0 : 1))
         """
@@ -104,7 +109,9 @@ enum UnitySettings {
         guard (try? body.write(to: onDisk, atomically: true, encoding: .utf8)) != nil else { return false }
         defer { try? FileManager.default.removeItem(at: onDisk) }
 
-        let ok = await run(["regedit", "C:\\anvil-screen.reg"], container: container, runtime: runtime)
+        // /S: silently. Without it, anything regedit can't do becomes a window on the player's screen
+        // that the launch waits behind.
+        let ok = await run(["regedit", "/S", "C:\\anvil-screen.reg"], container: container, runtime: runtime)
         if ok { try? want.write(to: stamp, atomically: true, encoding: .utf8) }
         return ok
     }

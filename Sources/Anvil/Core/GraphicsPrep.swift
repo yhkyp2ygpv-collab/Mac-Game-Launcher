@@ -527,6 +527,11 @@ extension GraphicsPrep {
     }
 
     /// The game closed unexpectedly with FSR in one pass: two from its next start.
+    /// Undone, for a game it was turned off for by mistake.
+    nonisolated static func onePassBackOn(gameID: UUID) {
+        update(gameID: gameID) { $0.onePassOff = false }
+    }
+
     nonisolated static func onePassOffAfterCrash(gameID: UUID) {
         update(gameID: gameID) { $0.onePassOff = true }
     }

@@ -295,7 +295,13 @@ final class Launcher: ObservableObject {
 
         // --- Upscaling ---
         let upscaler = game.upscalerOverride ?? container.upscaler
-        env.merge(UpscalerManager.shared.environment(for: upscaler, container: container)) { _, new in new }
+        // Its DLL overrides join the graphics backend's rather than replacing them: until 0.58.2 a game
+        // FSR 3 reached through its own upscaler (Hogwarts Legacy) lost D3DMetal's "d3d11,dxgi…=n,b".
+        var upscalerEnv = UpscalerManager.shared.environment(for: upscaler, container: container)
+        if let theirs = upscalerEnv.removeValue(forKey: "WINEDLLOVERRIDES") {
+            env["WINEDLLOVERRIDES"] = (env["WINEDLLOVERRIDES"].map { $0 + ";" } ?? "") + theirs
+        }
+        env.merge(upscalerEnv) { _, new in new }
 
         // DLSS through Apple's MetalFX, for a game the graphics scan found DLSS in, once its
         // pieces are in place (prepareAndLaunch puts them there; see DLSSThroughMetalFX).
@@ -314,6 +320,12 @@ final class Launcher: ObservableObject {
            let payload = UpscalerManager.shared.runtimes.first(where: { $0.id == id }),
            let override = UpscalerManager.overrides(for: payload) {
             env["WINEDLLOVERRIDES"] = (env["WINEDLLOVERRIDES"].map { $0 + ";" } ?? "") + override
+        }
+
+        // Microsoft's Visual C++ Runtime ahead of Wine's own, in a container Anvil installed it into
+        // (VCRuntime) — unless a game that ran before stopped starting with it there.
+        if VCRuntime.loadsMicrosofts(container) {
+            env["WINEDLLOVERRIDES"] = (env["WINEDLLOVERRIDES"].map { $0 + ";" } ?? "") + VCRuntime.overrides
         }
 
         // --- Anvil's own frame pipeline ---
@@ -940,6 +952,17 @@ final class Launcher: ObservableObject {
         if let line = files.line { AnvilLog.write("  \(line)") }
         if !files.ok, backend.backend == .dxvk {
             append("DXVK couldn't be set up for \(game.title), so its engine's own DirectX files draw it this time.")
+        }
+        // Microsoft's Visual C++ Runtime, once, for a game that needs it (VCRuntime): Hogwarts Legacy's
+        // launcher wouldn't start the game without it on 17 October. Its progress is on the Play button.
+        if let line = await step("visual c++", {
+            await VCRuntimeSetup.shared.prepare(game, container: container, runtime: runtime) { [weak self] text in
+                Task { @MainActor in self?.launching = text }
+            }
+        }) {
+            AnvilLog.write("  " + line)
+            if line.contains(" installed into ") { append("Installed Microsoft's Visual C++ Runtime, which \(game.title) needs, into “\(container.name)” — once.") }
+            ranWine = true
         }
         // Fullscreen, written where the engine actually reads it. Borderless rather
         // than exclusive: it never changes the display mode, which is the path that
