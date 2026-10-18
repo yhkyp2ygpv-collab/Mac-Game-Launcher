@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- Anvil, public edition — the copy shared in the .dmg.
+       It is signed with the hardened runtime and these entitlements so that the kernel
+       keeps the running app closed, not only the files on disk. Everything that could be
+       used to read Anvil's work out of it while it runs is turned off here, explicitly
+       rather than left to a default, so the posture holds whatever a future macOS defaults
+       to. The private edition (Jay's own copy) is signed without any of this, so it stays
+       debuggable and rebuildable.
+
+       None of this touches the game engine or the games: Anvil starts Wine and the games
+       as separate processes, and what Anvil sets for them is unaffected by its own
+       entitlements. -->
+
+  <!-- No debugger may attach to Anvil: task_for_pid on it is refused by the kernel. -->
+  <key>com.apple.security.get-task-allow</key>
+  <false/>
+
+  <!-- Only the code Anvil was built and signed with loads into it. A library someone
+       re-signed or swapped in is refused. -->
+  <key>com.apple.security.cs.disable-library-validation</key>
+  <false/>
+
+  <!-- A DYLD_INSERT_LIBRARIES (or any other DYLD_*) variable can't pull another library
+       into Anvil itself. -->
+  <key>com.apple.security.cs.allow-dyld-environment-variables</key>
+  <false/>
+
+  <!-- Anvil runs only the instructions it shipped with: no writable-executable memory,
+       no unsigned executable pages, no just-in-time compiled code in its own process. -->
+  <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+  <false/>
+  <key>com.apple.security.cs.allow-jit</key>
+  <false/>
+</dict>
+</plist>

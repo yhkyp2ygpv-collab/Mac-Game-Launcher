@@ -1,0 +1,68 @@
+#!/bin/bash
+# anvil-inject — run any command with Anvil's frame pipeline attached.
+#
+# The interceptor has no dependency on Anvil.app, so this works with Whisky,
+# Mythic, Heroic, CrossOver, or a bare wine64 invocation.
+#
+#   anvil-inject --frame-gen -- wine64 MyGame.exe
+#   anvil-inject --sharpness 0.7 -- /Applications/Whisky.app/.../wine64 Game.exe
+set -euo pipefail
+
+FRAME_GEN=0
+SHARPNESS=0.5
+ENABLED=1
+
+RES="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+for candidate in \
+  "$RES/build/Anvil.app/Contents/Resources" \
+  "/Applications/Anvil.app/Contents/Resources" \
+  "$RES/Resources"; do
+  if [ -f "$candidate/libanvil.dylib" ]; then LIBDIR="$candidate"; break; fi
+done
+
+usage() {
+  cat <<'USAGE'
+usage: anvil-inject [options] -- <command> [args...]
+
+  --frame-gen           Generate an interpolated frame between each rendered pair.
+  --sharpness <0..1>    RCAS sharpening strength (default 0.5).
+  --off                 Load but do nothing. Useful for A/B comparison.
+
+Anvil measures motion from the frames themselves, so no game support is required.
+Frame generation costs one frame of latency.
+USAGE
+  exit 1
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --frame-gen) FRAME_GEN=1; shift ;;
+    --sharpness) SHARPNESS="$2"; shift 2 ;;
+    --off) ENABLED=0; shift ;;
+    --) shift; break ;;
+    -h|--help) usage ;;
+    *) echo "unknown option: $1" >&2; usage ;;
+  esac
+done
+[ $# -eq 0 ] && usage
+
+if [ -z "${LIBDIR:-}" ]; then
+  echo "anvil-inject: can't find libanvil.dylib. Build Anvil, or put this script" >&2
+  echo "              next to a Resources/ directory containing it." >&2
+  exit 1
+fi
+
+# macOS strips DYLD_* when exec'ing a SIP-protected or hardened binary, so the
+# target has to be unsigned or ad-hoc signed. Wine builds normally are.
+if codesign -dv "$1" 2>&1 | grep -q "flags=.*runtime"; then
+  echo "anvil-inject: warning — $1 uses the hardened runtime; macOS will strip" >&2
+  echo "              the injection and the pipeline will not load." >&2
+fi
+
+exec env \
+  DYLD_INSERT_LIBRARIES="$LIBDIR/libanvil.dylib" \
+  ANVIL_METALLIB="$LIBDIR/AnvilShaders.metallib" \
+  ANVIL_HOOK_ENABLED="$ENABLED" \
+  ANVIL_FRAME_GEN="$FRAME_GEN" \
+  ANVIL_SHARPNESS="$SHARPNESS" \
+  "$@"

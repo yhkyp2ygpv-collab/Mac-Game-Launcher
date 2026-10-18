@@ -1,0 +1,29 @@
+ANVIL — play Windows games from Steam and Epic on your Mac
+Made by Jay Chirag Patel · Santa Clara, California
+
+INSTALLING
+1. Drag Anvil into the Applications folder.
+2. Open Anvil from Applications.
+   If macOS says it "cannot verify" Anvil: open System Settings › Privacy & Security,
+   scroll down, and choose "Open Anyway" next to Anvil. You only do this once.
+
+WHAT YOU NEED
+- A Mac with Apple silicon (M1 or later) and macOS 14 Sonoma or newer.
+- Rosetta. If it's missing, Anvil's setup tells you how to add it.
+- About 2 GB free for Anvil's engine and Steam, plus room for your games.
+
+THE FIRST START
+Anvil's setup tests your Mac's graphics, downloads the game engine (about 200 MB, from
+its publisher), and offers to set up Steam (from Valve) and sign in to Epic Games. Your
+passwords go only to Steam's and Epic's own sign-in pages, never to Anvil.
+
+GOOD TO KNOW
+- Games with kernel anti-cheat (Riot Vanguard, EA Javelin, and some others) can't run
+  their online modes on a Mac. Anvil marks those games. Easy Anti-Cheat and BattlEye
+  games work online only where the game's maker allows Wine.
+- Anvil tunes each game as you play it. Give a new game a few minutes.
+
+Copyright © 2026 Jay Chirag Patel. Anvil's source code is published under the Anvil Source
+License (License.txt): free to use, change and share with credit to Jay Chirag Patel as a
+collaborator; selling it or publishing it for money needs written permission first.
+Source code: https://github.com/yhkyp2ygpv-collab/Mac-Game-Launcher

@@ -7,9 +7,19 @@ Anvil fixes that. It installs and runs Windows games on Apple silicon Macs, then
 one while you play: sharper upscaling, extra frames in heavy scenes, even frame pacing,
 working controllers and surround sound.
 
-### [⬇ Download Anvil 0.58.0](https://github.com/yhkyp2ygpv-collab/Mac-Game-Launcher/releases/latest)
+### [⬇ Download Anvil 0.58.1](https://github.com/yhkyp2ygpv-collab/Mac-Game-Launcher/releases/latest)
 
-Free · Apple silicon (M1 or later) · macOS 14 Sonoma or newer
+Free · Apple silicon (M1 or later) · macOS 14 Sonoma or newer · **Open source**
+
+> **Anvil is open source** — its full source code is in this repository, under the
+> [Anvil Source License](LICENSE.txt). Use it, build it, improve it and share it for free.
+>
+> **If you clone or fork Anvil, please add me as a collaborator and put me in your credits:**
+> *Jay Chirag Patel ([@yhkyp2ygpv-collab](https://github.com/yhkyp2ygpv-collab))* — in your
+> README and credits, and as a collaborator on your repository.
+>
+> **Selling it or publishing it for money? Talk to me first** — open an issue titled
+> "Commercial use". It needs my written permission.
 
 ---
 
@@ -74,7 +84,7 @@ feedback form below.</sub>
 
 ## Install
 
-1. Download `Anvil-0.58.0.dmg` from
+1. Download `Anvil-0.58.1.dmg` from
    [Releases](https://github.com/yhkyp2ygpv-collab/Mac-Game-Launcher/releases/latest).
 2. Open it and drag **Anvil** into **Applications**.
 3. Open Anvil. If macOS says it "cannot verify" Anvil, go to
@@ -124,7 +134,14 @@ Please leave out personal details such as account names or email addresses.
   release lists the DMG's SHA-256, so you can check your download.
 - **No warranty.** Anvil is provided "as is"; see [LICENSE.txt](LICENSE.txt).
 
-## What's new in 0.58.0
+## What's new in 0.58.1
+
+- **Anvil is open source.** Its full source code is in this repository under the
+  [Anvil Source License](LICENSE.txt) — see [Build from source](#build-from-source). Settings ›
+  About in the app links here and states the licence. Nothing about how Anvil plays has
+  changed since 0.58.0.
+
+## In 0.58.0
 
 - **Smooth Motion through explosions, lightning and fire.** In effects-heavy scenes Smooth
   Motion used to give up on whole frames and show a real frame twice (64% of made frames in
@@ -169,6 +186,7 @@ version number at the bottom of the sidebar.
 
 Older versions stay available in case a new one doesn't suit a game:
 
+- [Anvil 0.58.0 (legacy)](https://github.com/yhkyp2ygpv-collab/Mac-Game-Launcher/releases/tag/v0.58.0)
 - [Anvil 0.57.0 (legacy)](https://github.com/yhkyp2ygpv-collab/Mac-Game-Launcher/releases/tag/v0.57.0)
 - [Anvil 0.55.0 (legacy)](https://github.com/yhkyp2ygpv-collab/Mac-Game-Launcher/releases/tag/v0.55.0)
 - [Anvil 0.53.0 (legacy)](https://github.com/yhkyp2ygpv-collab/Mac-Game-Launcher/releases/tag/v0.53.0)
@@ -179,6 +197,9 @@ Older versions stay available in case a new one doesn't suit a game:
 
 ## Credits
 
+- **Anvil:** created by Jay Chirag Patel ([@yhkyp2ygpv-collab](https://github.com/yhkyp2ygpv-collab)).
+  If you clone, fork or build on Anvil, keep this line in your credits and add Jay Chirag
+  Patel as a collaborator.
 - **Game engine:** Wine with Apple's D3DMetal (Game Porting Toolkit). Anvil downloads it
   from its publisher's engine releases and ships no copy of it.
 - **Epic Games:** [legendary](https://github.com/legendary-gl/legendary), the open-source Epic
@@ -192,8 +213,47 @@ Older versions stay available in case a new one doesn't suit a game:
 Steam is a trademark of Valve Corporation, and Epic Games is a trademark of Epic Games, Inc.
 Anvil isn't affiliated with Valve, Epic Games, Apple, AMD, Mythic or Heroic.
 
+## Build from source
+
+Needs a Mac with Xcode (Swift 5.9 or newer). The Metal toolchain is optional — without it
+Anvil's shaders compile the first time they're used:
+
+```bash
+xcodebuild -downloadComponent MetalToolchain
+```
+
+Build both editions:
+
+```bash
+scripts/build_editions.sh
+```
+
+| Edition | Output |
+|---|---|
+| private | `build/Anvil.app` (debug symbols, no self-check) |
+| public | `build/public/Anvil.app` and `build/Anvil-<version>.dmg` |
+
+| Folder | What's in it |
+|---|---|
+| `Sources/Anvil` | The SwiftUI app (`Core` for logic, `UI` for screens) |
+| `Native/AnvilMetal` | `libanvil`: Metal shaders, FSR, Smooth Motion, frame pacing, audio, input |
+| `Native/Tools` | Graphics Prep, the sound check, and the test suite (`tests`) |
+| `Resources` | Icons, entitlements, Minecraft PC setup and bundled data |
+| `scripts` | Build scripts |
+
 ## License
 
-Anvil is free to download and use, but it is **not open source**, and its source code isn't
-published here. Copyright © 2026 Jay Chirag Patel. All rights reserved. See
-[LICENSE.txt](LICENSE.txt).
+Anvil is open source under the **[Anvil Source License](LICENSE.txt)**. Copyright © 2026
+Jay Chirag Patel.
+
+- **Free to use, change and share.** Build it, fix it, improve it and pass it on, at no
+  charge.
+- **Clone or fork it? Credit me as a collaborator.** Name *Jay Chirag Patel
+  ([@yhkyp2ygpv-collab](https://github.com/yhkyp2ygpv-collab))* as a collaborator in your
+  README and in your credits (and in your app's About screen if your version has one), and
+  add that GitHub account as a collaborator on your repository.
+- **Selling it or publishing it for money needs my permission first.** Open an issue
+  titled "Commercial use" on [this repository](https://github.com/yhkyp2ygpv-collab/Mac-Game-Launcher/issues).
+
+Third-party code keeps its own licence: see [THIRD-PARTY.md](THIRD-PARTY.md) (AMD
+FidelityFX, MIT licence; SDL GameControllerDB, zlib).

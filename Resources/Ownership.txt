@@ -1,0 +1,11 @@
+ANVIL — OWNERSHIP
+
+Anvil was created by Jay Chirag Patel, Santa Clara, California.
+Copyright © 2026 Jay Chirag Patel. Licensed under the Anvil Source License (License.txt):
+free to use, change and share with credit to Jay Chirag Patel as a collaborator; selling
+it or publishing it for money needs written permission from Jay Chirag Patel first.
+Source code: https://github.com/yhkyp2ygpv-collab/Mac-Game-Launcher
+
+This file is part of Anvil and is checked every time Anvil starts. If it is changed,
+moved or deleted, Anvil will not start. Install Anvil again from its original .dmg to
+restore it.

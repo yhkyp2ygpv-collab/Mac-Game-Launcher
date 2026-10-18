@@ -1,0 +1,37 @@
+# What 3D sound makes of each kind of output — one table for both sides of it:
+#   libanvil (anvil_audio.mm's listenerFor and plan), checked by audio_fold_test.mm, and
+#   the app's panel and switch (Core/SoundOutputs.swift), checked by SoundOutputTest.swift.
+# A change to the rules on one side fails the other's test until both agree again.
+#
+# connection | channels | data source | listening on | name | listener | fit
+# A fit of threeD, virtualSurround or surround is "compatible": libanvil's spatial mixer takes it.
+builtin     | 2  | ispk | auto       | MacBook Pro Speakers   | builtInSpeakers  | virtualSurround
+builtin     | 2  | hdpn | auto       | MacBook Pro Speakers   | headphones       | threeD
+builtin     | 2  | -    | auto       | External Headphones    | headphones       | threeD
+builtin     | 2  | -    | speakers   | External Headphones    | builtInSpeakers  | virtualSurround
+builtin     | 2  | ispk | headphones | MacBook Pro Speakers   | headphones       | threeD
+builtin     | 1  | -    | auto       | Mac mini Speakers      | builtInSpeakers  | mono
+builtin     | 0  | -    | auto       | Built-in Output        | builtInSpeakers  | unreadable
+bluetooth   | 2  | -    | auto       | Jay’s AirPods Pro      | headphones       | threeD
+bluetooth   | 1  | -    | auto       | Jay’s AirPods Pro      | headphones       | mono
+bluetooth   | 2  | -    | speakers   | Jay’s AirPods Pro      | externalSpeakers | virtualSurround
+bluetoothLE | 2  | -    | auto       | Beats Fit Pro          | headphones       | threeD
+bluetooth   | 2  | -    | auto       | JBL Flip 6             | externalSpeakers | virtualSurround
+bluetooth   | 2  | -    | auto       | Bose SoundLink Flex    | externalSpeakers | virtualSurround
+bluetooth   | 2  | -    | auto       | Sonos Roam             | externalSpeakers | virtualSurround
+usb         | 2  | -    | auto       | SteelSeries Arctis 7   | headphones       | threeD
+usb         | 2  | -    | auto       | HyperX Cloud II        | headphones       | threeD
+usb         | 2  | -    | auto       | Razer Kraken V3        | headphones       | threeD
+usb         | 2  | -    | auto       | Audioengine 2+         | externalSpeakers | virtualSurround
+usb         | 2  | -    | headphones | Audioengine 2+         | headphones       | threeD
+usb         | 8  | -    | auto       | Sound Blaster X4       | surround         | surround
+usb         | 18 | -    | auto       | Scarlett 18i20         | surround         | tooWide
+hdmi        | 2  | -    | auto       | LG TV                  | externalSpeakers | virtualSurround
+hdmi        | 6  | -    | auto       | Denon AVR              | surround         | surround
+hdmi        | 8  | -    | headphones | Denon AVR              | surround         | surround
+displayport | 2  | -    | auto       | Studio Display         | externalSpeakers | virtualSurround
+airplay     | 2  | -    | auto       | Living Room            | externalSpeakers | virtualSurround
+thunderbolt | 2  | -    | headphones | Apollo Twin            | headphones       | threeD
+virtual     | 6  | -    | auto       | NDI Audio              | surround         | surround
+virtual     | 2  | -    | auto       | BlackHole 2ch          | externalSpeakers | virtualSurround
+aggregate   | 2  | -    | auto       | Multi-Output Device    | externalSpeakers | virtualSurround

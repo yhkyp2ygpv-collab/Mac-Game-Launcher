@@ -1,32 +1,79 @@
-ANVIL — SOFTWARE LICENSE
+ANVIL SOURCE LICENSE 1.0
 
-Copyright © 2026 Jay Chirag Patel, Santa Clara, California. All rights reserved.
+Copyright © 2026 Jay Chirag Patel, Santa Clara, California.
+https://github.com/yhkyp2ygpv-collab/Mac-Game-Launcher
 
-Anvil, including its program code, libraries, shaders, artwork, icons and documentation,
-is the property of Jay Chirag Patel. It is not open source.
+Anvil's source code is published so that anyone can read it, build it, learn from it,
+improve it and share it, on the terms below. "Anvil" means the program and everything
+published with it: its source code, libraries, shaders, scripts, artwork, icons and
+documentation, and any copy or changed version of them.
 
-You may install and use this copy of Anvil on Macs you own or control, for your own use.
 
-You may not, without written permission from Jay Chirag Patel:
-  - copy, sell, rent, sublicense or redistribute Anvil, in whole or in part, except by
-    passing on the original, unmodified .dmg file it came in;
-  - modify, adapt, translate or make derivative works of Anvil;
-  - reverse engineer, decompile or disassemble Anvil, except where applicable law
-    expressly permits it despite this limitation;
-  - remove or change any copyright, authorship or licence notice in Anvil.
+1. FREE TO USE, CHANGE AND SHARE — WITH CREDIT
 
-The public edition of Anvil checks at every start that none of its files have been
-changed, removed or added, and does not start if any have. This check never deletes or
-alters anything on your Mac; installing an original copy again restores it.
+You may, free of charge and without asking first:
+
+  - use Anvil, and build it from its source, on any Mac;
+  - copy, clone or fork it, and change it: fix it, improve it, add to it, port it, or
+    learn from it;
+  - share it, changed or not, as long as nobody is charged for it.
+
+When you share Anvil or a changed version of it in any way — a public clone, fork or
+mirror, a build you pass on, or code of Anvil's inside another free project — you must:
+
+  a. Credit Jay Chirag Patel as a collaborator. Name "Jay Chirag Patel
+     (github.com/yhkyp2ygpv-collab)" as a collaborator in your project's README and in
+     its credits, and in the app's About or credits screen if your version has one. On
+     GitHub, or any host that has collaborators, also add the GitHub account
+     yhkyp2ygpv-collab as a collaborator on your repository.
+  b. Keep this licence with it, unchanged, and keep the copyright notice above in every
+     copy.
+  c. Say plainly that your version has been changed from the original, if it has, and
+     don't present it as the original Anvil.
+
+
+2. MAKING MONEY WITH ANVIL — TALK TO ME FIRST
+
+You may not do any of the following without first contacting Jay Chirag Patel and
+getting written permission:
+
+  - sell Anvil or any version of it, or charge for downloading, installing or using it;
+  - include Anvil, or any part of its code, in a product or service that is sold,
+    rented, subscribed to or otherwise paid for;
+  - publish or distribute Anvil, or a version of it, in order to make money from it, in
+    any way: paid downloads, app-store sales, paywalls, subscriptions, advertising built
+    around it, or paid support or hosting for it.
+
+To ask, open an issue titled "Commercial use" at
+https://github.com/yhkyp2ygpv-collab/Mac-Game-Launcher/issues, or contact Jay Chirag
+Patel through GitHub. Permission counts only when it is given in writing by Jay Chirag
+Patel, and only for what it says.
+
+
+3. OTHER PEOPLE'S PARTS
+
+Parts of Anvil come from others and stay under their own licences, which this licence
+doesn't change (see THIRD-PARTY.md, and Anvil.app/Contents/Resources/Legal): Metal ports
+of parts of AMD's FidelityFX SDK (MIT licence) and the SDL GameControllerDB (zlib
+licence).
 
 Anvil downloads software made by others when you ask it to — the Wine-based game engine
-(from its publisher), Steam (from Valve), and legendary, the open-source Epic Games
-client (from its own project). Those programs are under their own licences, not this
-one. Anvil also contains third-party code under the licences listed in
-Anvil.app/Contents/Resources/Legal. Steam is a trademark of Valve Corporation; Epic
-Games is a trademark of Epic Games, Inc. Anvil is not affiliated with either.
+(from its publisher), Steam (from Valve) and legendary, the open-source Epic Games client
+(from its own project). Those programs are under their own licences, not this one.
+
+Steam is a trademark of Valve Corporation; Epic Games is a trademark of Epic Games, Inc.
+Anvil is not affiliated with Valve, Epic Games, Apple, AMD, Mythic or Heroic.
+
+
+4. NO WARRANTY
 
 Anvil is provided "as is", without warranty of any kind, express or implied. In no event
-shall the author be liable for any claim, damages or other liability arising from the
-use of Anvil, including loss of data or of game progress. Online games may have their
-own rules about the software they run alongside; following them is up to the player.
+shall the author be liable for any claim, damages or other liability arising from the use
+of Anvil, including loss of data or of game progress. Online games may have their own
+rules about the software they run alongside; following them is up to the player.
+
+
+5. IF THESE TERMS AREN'T FOLLOWED
+
+This licence gives you rights to Anvil only while you follow it. If you don't, those
+rights end, and come back once you do.

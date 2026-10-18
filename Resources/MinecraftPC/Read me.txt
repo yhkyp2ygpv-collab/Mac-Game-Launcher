@@ -1,0 +1,22 @@
+Anvil - Minecraft (Bedrock, the PC version) in this Windows
+
+1. Install VMware Tools first, if Windows doesn't have them yet: in VMware Fusion's menu bar,
+   Virtual Machine > Install VMware Tools, then run the installer it opens in Windows and restart.
+   They give Windows its 3D graphics and this shared folder.
+
+2. Double-click "Set up Minecraft.cmd" in this folder. Windows may ask whether to run a file from
+   a network location: choose Run. Then allow it to make changes (it runs as administrator).
+   It shows what it will do and asks you to type Y before it changes anything.
+
+3. Sign in to the Minecraft Launcher with your Microsoft account and install Minecraft for Windows
+   (your own copy - Java owners usually have it in the "Java & Bedrock" bundle).
+
+From then on Minecraft opens whenever Windows signs in, and Anvil's Play button resumes the machine
+inside the game.
+
+To put Windows' settings back: open a Command Prompt here and run   "Set up Minecraft.cmd" undo
+Apps the setup took out can be installed again from the Microsoft Store; they're listed in
+setup-log.txt after it runs.
+
+Run it from the Windows account you play on, and let that account approve the change itself
+(an administrator account, as the first account on a new Windows is).
