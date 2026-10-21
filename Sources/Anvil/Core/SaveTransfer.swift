@@ -388,16 +388,30 @@ final class SaveTransfer: ObservableObject {
     }
 
     nonisolated static func directorySize(_ url: URL) -> Int64 {
-        guard let walker = FileManager.default.enumerator(
-            at: url, includingPropertiesForKeys: [.fileSizeKey]) else { return 0 }
         var total: Int64 = 0
-        var counted = 0
-        for case let f as URL in walker {
-            total += Int64((try? f.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
-            counted += 1
-            if counted > 20_000 { break }
-        }
+        walk(url) { _, values in total += Int64(values.fileSize ?? 0) }
         return total
+    }
+
+    /// Every regular file under `root`, at most `limit`, never through a link. A Wine profile links some of its
+    /// folders to the Mac's own: Wine 7.7 made AppData/Roaming/Microsoft/Windows/Templates a link to the whole home
+    /// folder, and until 0.59.1 sizing a profile's folders followed it — through the home folder, iCloud's folders
+    /// and the ones macOS guards — and on 21 October looking for LEGO Star Wars' saves sat for minutes on one of
+    /// them. A link isn't a save; nothing outside the folder is read.
+    nonisolated static func walk(_ root: URL, limit: Int = 20_000,
+                                 _ visit: (URL, URLResourceValues) -> Void) {
+        let keys: [URLResourceKey] = [.isSymbolicLinkKey, .isRegularFileKey, .fileSizeKey, .contentModificationDateKey]
+        if (try? root.resourceValues(forKeys: [.isSymbolicLinkKey]))?.isSymbolicLink == true { return }
+        guard let walker = FileManager.default.enumerator(at: root, includingPropertiesForKeys: keys) else { return }
+        var counted = 0
+        while let f = walker.nextObject() as? URL {
+            guard let values = try? f.resourceValues(forKeys: Set(keys)) else { continue }
+            if values.isSymbolicLink == true { walker.skipDescendants(); continue }
+            guard values.isRegularFile == true else { continue }
+            visit(f, values)
+            counted += 1
+            if counted >= limit { break }
+        }
     }
 
     enum TransferError: LocalizedError {

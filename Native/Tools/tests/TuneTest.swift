@@ -66,7 +66,13 @@ struct TuneTestMain {
         print("last LEGO session windows:", lastLego?.windows.count ?? -1, "started", lastLego?.startedAt as Any)
 
         // ---------- 2. Game analysis on the real executables (read-only) ----------
-        let lego = URL(fileURLWithPath: "/Applications/Games/Mythic/LEGOStarWarsTSS/LEGOSTARWARSSKYWALKERSAGA_DX11.exe")
+        // Mythic's install until 17 October; downloaded again into Anvil's own Games folder on 19 October.
+        // (The real home: the test runs in a throwaway one.)
+        let lego = ["/Applications/Games/Mythic/LEGOStarWarsTSS",
+                    (getpwuid(getuid()).map { String(cString: $0.pointee.pw_dir) } ?? "/") + "/Games/Anvil/LEGOStarWarsTSS"]
+            .map { URL(fileURLWithPath: $0 + "/LEGOSTARWARSSKYWALKERSAGA_DX11.exe") }
+            .first { FileManager.default.fileExists(atPath: $0.path) }
+            ?? URL(fileURLWithPath: "/Applications/Games/Mythic/LEGOStarWarsTSS/LEGOSTARWARSSKYWALKERSAGA_DX11.exe")
         let cat = URL(fileURLWithPath: "/Applications/Games/Mythic/CatQuestII/Cat Quest II.exe")
         var t0 = Date()
         let la = GameAnalysis.analyze(executable: lego)

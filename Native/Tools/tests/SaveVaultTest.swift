@@ -1,6 +1,7 @@
 // Saves that outlive a game (SaveVault): exports kept in two places, found again when the game comes back in
 // another Windows setup, offered newest first, and put back — the export or the old setup's saves — with what the
-// game had kept first. Run on copies of LEGO Star Wars' real saves of 17 and 20 October, in a home of its own:
+// game had kept first, each saying what it holds, the furthest picked, and Undo. Run on copies of LEGO Star Wars' real
+// saves of 17 and 20 October, in a home of its own:
 //
 //   CFFIXED_USER_HOME=$T/home HOME=$T/home SaveVaultTest <export.zip> <old setup's LEGO save folder> <new setup's LEGO save folder>
 import Foundation
@@ -96,11 +97,38 @@ struct SaveVaultTest {
         check((others.first?.lastSaved ?? .distantFuture) < (e?.lastSaved ?? .distantPast),
               "but older — the export's last save is the newest, and it's listed with it: \(others.first?.lastSaved.map { "\($0)" } ?? "-")")
 
+        print("— an export's listing")
+        let spaced = "-rw-r--r--  2.1 unx     1380 bX      544 defN 20261017.152528 profile/AppData/Roaming/Warner Bros. Interactive Entertainment/LEGO Star Wars - The Skywalker Saga/SAVEDGAMES/EPIC/2D99795513544C2CBDC588A08B453AC8/SLOT1/SAVEGAMEMETA.BLOB"
+        let plain = "-rw-r--r--  2.1 unx     4096 bX      100 defN 20261018.195933 profile/AppData/Local/FNAF/Saved/SaveGames/Slot0.sav"
+        check(SaveVault.entryName(Substring(spaced)) == "profile/AppData/Roaming/Warner Bros. Interactive Entertainment/LEGO Star Wars - The Skywalker Saga/SAVEDGAMES/EPIC/2D99795513544C2CBDC588A08B453AC8/SLOT1/SAVEGAMEMETA.BLOB",
+              "a name with spaces read whole")
+        check(SaveVault.entryName(Substring(plain)) == "profile/AppData/Local/FNAF/Saved/SaveGames/Slot0.sav", "and one without any, counted")
+
+        print("— what each holds, read from the saves")
+        check(SaveReader.placeName(area: "PLANET_CORUSCANT", route: "FULLTITLE_EPISODE1") == "Coruscant · Episode I"
+              && SaveReader.placeName(area: "EP3LEVEL02", route: "FULLTITLE_EPISODE3") == "Episode III, level 2"
+              && SaveReader.placeName(area: "EPSELECT_TITLE", route: nil) == "Episode Select", "the game's place names in words")
+        check(e?.summary?.place == "Episode Select" && abs((e?.percent ?? 0) - 34.25) < 0.01,
+              "the export: \(e?.summary?.text ?? "-") — the whole story done, back at Episode Select")
+        check((others.first?.percent ?? 100) < (e?.percent ?? 0), "the old setup: \(others.first?.summary?.text ?? "-") — less far")
+
+        // Save Guard's backups, as made before each play: the old setup's holds what it has; the new setup's, the new start.
+        SaveGuard.backUp(prefix: old.prefixURL, containerID: old.id, containerName: old.name, reason: "test", force: true)
+        SaveGuard.backUp(prefix: new.prefixURL, containerID: new.id, containerName: new.name, reason: "test", force: true)
+        check(SaveVault.backups(for: game, containers: containers).count == 2, "a backup of each setup found, with the game's saves in it")
+
         print("— asked when it came back")
         guard let offer = SaveVault.offer(for: game, container: new, containers: containers, aloneInContainer: true, askedUpTo: 0) else {
             check(false, "no offer for a game downloaded again"); exit(1)
         }
-        check(offer.candidates.count == 2, "both offered: the export and the old setup")
+        check(offer.candidates.count == 2, "both offered: the export and the old setup (\(offer.candidates.count)) — the backups hold the same saves")
+        check(offer.candidates.first { if case .otherSetup = $0.kind { true } else { false } }?.copies == 2,
+              "the old setup's backup listed once with it: 2 copies of the same saves")
+        check(!offer.candidates.contains { $0.isBackup }, "and the backup of what it has now isn't offered — nothing to go back to")
+        check((offer.current?.percent ?? 100) < 5 && offer.current?.summary?.place.contains("Episode I") == true,
+              "what it has now: \(offer.current?.summary?.text ?? "-") — the new start")
+        check(offer.recommended.map { if case .export = $0.kind { true } else { false } } == true, "the furthest is picked: the export")
+        check(offer.because?.contains("furthest") == true, "and it says why: \(offer.because ?? "-")")
         check(offer.candidates.first.map { if case .export = $0.kind { true } else { false } } == true, "newest first: the export")
         check(offer.current != nil && (offer.current?.lastSaved ?? .distantPast) > (offer.candidates.first?.date ?? .distantFuture),
               "and what it has now, the newer start, to keep instead")
@@ -117,7 +145,9 @@ struct SaveVaultTest {
 
         print("— the export put back")
         do {
-            let said = try SaveVault.restore(offer.candidates[0], for: game, container: new, aloneInContainer: true, containers: containers)
+            let done = try SaveVault.restoreKeeping(offer.candidates[0], for: game, container: new, aloneInContainer: true, containers: containers)
+            let said = done.text
+            if let zip = done.keptAs { SaveVault.rememberUndo(game: game, keptAs: zip, restored: "the export") }
             // The export holds the end of 17 October's afternoon (3:25 PM); the old setup now has 12:52 PM's, put back
             // there from a backup on 19 October — so the export, not the old setup, is what comes back.
             check(size(new, "SLOT1/COLLECTABLES.BLOB") == zipped(exportZip, "SLOT1/COLLECTABLES.BLOB"),
@@ -134,6 +164,57 @@ struct SaveVaultTest {
         let later = SaveVault.exports(for: game)
         check(later.count == 2, "the new start is now one of the choices too, should it be wanted back (\(later.count) exports)")
 
+        print("— asked once, as on 21 October")
+        // The restore just made a safety copy ("before restoring", the newest export now) and made the save folder
+        // anew. Answered a moment ago: the start right after mustn't ask again.
+        let answered = Date().timeIntervalSince1970
+        check(SaveVault.offer(for: game, container: new, containers: containers, aloneInContainer: true, askedUpTo: answered) == nil,
+              "the start right after choosing doesn't ask again")
+        // Never answered (or Ask Me Later): still not asked — nothing from before is further through than what it has now.
+        check(SaveVault.offer(for: game, container: new, containers: containers, aloneInContainer: true, askedUpTo: 0) == nil
+              && SaveVault.lastDecision?.contains("as far through") == true, "nor when never answered: \(SaveVault.lastDecision ?? "-")")
+        SaveVault.lastDecision = nil
+        if let again = SaveVault.offer(for: game, container: new, containers: containers, aloneInContainer: true, askedUpTo: 0, force: true) {
+            check(again.candidates.contains { ($0.percent ?? 100) < 5 }, "the new start is listed to go back to: "
+                  + again.candidates.map { SaveChoice.shared.describe($0) }.joined(separator: "; "))
+            check(again.recommended?.kind == .current, "and what's picked is what it has now, the furthest — never the safety copy")
+            check(again.candidates.first { if case .export = $0.kind, !$0.isSafetyCopy { true } else { false } }?.sameAsNow == true,
+                  "the export it came from is marked the same as now")
+        } else { check(false, "nothing listed by Choose Saves from Before") }
+
+        print("— undo")
+        if let u = SaveVault.undo(for: game) {
+            check((u.candidate.percent ?? 100) < 5, "Undo would put back the new start: \(u.candidate.summary?.text ?? "-")")
+            do {
+                let back = try SaveVault.restoreKeeping(u.candidate, for: game, container: new, aloneInContainer: true, containers: containers)
+                check(size(new, "SLOT1/COLLECTABLES.BLOB") == newCollectables, "undone: the new start is back")
+                if let zip = back.keptAs { SaveVault.rememberUndo(game: game, keptAs: zip, restored: "the new start") }
+                if let u2 = SaveVault.undo(for: game) {
+                    check(abs((u2.candidate.percent ?? 0) - 34.25) < 0.01, "and undoing the undo would bring the finished game back")
+                    _ = try SaveVault.restoreKeeping(u2.candidate, for: game, container: new, aloneInContainer: true, containers: containers)
+                    check(size(new, "SLOT1/COLLECTABLES.BLOB") == zipped(exportZip, "SLOT1/COLLECTABLES.BLOB"), "which it does")
+                } else { check(false, "no undo after the undo") }
+            } catch { check(false, "undo: \(error)") }
+        } else { check(false, "no undo kept after the restore") }
+
+        print("— links out of the setup aren't followed")
+        // Wine 7.7 made AppData/Roaming/Microsoft/Windows/Templates a link to the home folder.
+        let outside = fm.temporaryDirectory.appendingPathComponent("outside-\(UUID().uuidString)", isDirectory: true)
+        try? fm.createDirectory(at: outside, withIntermediateDirectories: true)
+        try? Data(count: 5_000_000).write(to: outside.appendingPathComponent("big-file-not-a-save.bin"))
+        let templates = old.driveC.appendingPathComponent("users/crossover/AppData/Roaming/Microsoft/Windows", isDirectory: true)
+        try? fm.createDirectory(at: templates, withIntermediateDirectories: true)
+        try? fm.createSymbolicLink(at: templates.appendingPathComponent("Templates"), withDestinationURL: outside)
+        let microsoft = old.driveC.appendingPathComponent("users/crossover/AppData/Roaming/Microsoft")
+        check(SaveTransfer.directorySize(microsoft) < 1_000_000, "a folder's size doesn't count what a link inside it points to (\(SaveTransfer.directorySize(microsoft)) bytes)")
+        var seen = 0
+        SaveTransfer.walk(old.driveC.appendingPathComponent("users/crossover/AppData")) { url, _ in if url.path.contains("big-file-not-a-save") { seen += 1 } }
+        check(seen == 0, "nor is anything through it visited")
+        let started = Date()
+        let oldPlaces = GameSaves.places(for: game, in: old, aloneInContainer: true).map(\.relativePath)
+        check(!oldPlaces.contains { $0.contains("Microsoft") } && Date().timeIntervalSince(started) < 5,
+              String(format: "the setup's save folders found without it (%.2f s): %@", Date().timeIntervalSince(started), oldPlaces.description))
+
         print("— the old setup's saves put back")
         let fresh = makeSetup("Epic Games 2", from: newSaves)
         var game2 = game; game2.containerID = fresh.id
@@ -144,6 +225,38 @@ struct SaveVaultTest {
                 check(size(old, "SLOT1/COLLECTABLES.BLOB") == oldCollectables, "and the old setup's own copy is left as it was")
             } catch { check(false, "copy: \(error)") }
         } else { check(false, "no old setup found") }
+
+        print("— a backup put back")
+        let fresh2 = makeSetup("Epic Games 3", from: newSaves)
+        var game3 = game; game3.containerID = fresh2.id
+        if let b = SaveVault.backups(for: game3, containers: [old, new, fresh2]).first(where: {
+            if case .backup(_, let id, _, _, _) = $0.kind { id == old.id } else { false } }) {
+            do {
+                let said = try SaveVault.restore(b, for: game3, container: fresh2, aloneInContainer: true, containers: [old, new, fresh2])
+                check(size(fresh2, "SLOT1/COLLECTABLES.BLOB") == oldCollectables, "the game's folder from the “Star Wars” backup: \(said)")
+            } catch { check(false, "backup: \(error)") }
+        } else { check(false, "no backup of the old setup") }
+
+        print("— one Documents shared by every setup")
+        // Wine links each setup's Documents to the Mac's: Cat Quest II's saves there are one folder, not saves left behind.
+        let shared = fm.homeDirectoryForCurrentUser.appendingPathComponent("Documents/Cat Quest II", isDirectory: true)
+        try? fm.createDirectory(at: shared, withIntermediateDirectories: true)
+        try? Data(repeating: 7, count: 4096).write(to: shared.appendingPathComponent("save_file1.dat"))
+        func linked(_ name: String) -> Container {
+            var c = Container(name: name, runtimeID: "none")
+            c.id = UUID()
+            let profile = c.driveC.appendingPathComponent("users/crossover", isDirectory: true)
+            try? fm.createDirectory(at: profile, withIntermediateDirectories: true)
+            try? fm.createSymbolicLink(at: profile.appendingPathComponent("Documents"), withDestinationURL: shared.deletingLastPathComponent())
+            return c
+        }
+        let catA = linked("Cat Quest"), catB = linked("Epic Games 4")
+        let cat = Game(title: "Cat Quest II", executablePath: "/nowhere/Cat Quest II.exe", containerID: catB.id)
+        check(!GameSaves.places(for: cat, in: catB, aloneInContainer: false).isEmpty, "its own setup finds its saves in the Mac's Documents")
+        check(SaveVault.otherSetups(for: cat, containers: [catA, catB]).isEmpty, "but another setup isn't offered as having them")
+        let copied = (try? GameSaves.copy([GameSaves.Place(relativePath: "Documents/Cat Quest II", bytes: 4096)], from: catA, into: catB)) ?? -1
+        check(copied == 0 && fm.fileExists(atPath: shared.appendingPathComponent("save_file1.dat").path),
+              "and copying that folder onto itself is skipped — nothing moved aside, nothing lost")
 
         print("— kept what it has")
         let keep = SaveVault.Candidate(kind: .current, lastSaved: Date(), files: 1, bytes: 1)

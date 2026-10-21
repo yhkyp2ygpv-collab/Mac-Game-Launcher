@@ -6,7 +6,7 @@ import Foundation
 /// always say exactly what it is — the point is to be able to tell whether the app
 /// in front of you includes a given fix.
 enum AnvilVersion {
-    static let current = "0.59.1"
+    static let current = "0.60.0"
     static let build = buildStamp
 
     /// Baked at compile time from the source's own modification date, so two builds
@@ -34,6 +34,28 @@ enum AnvilVersion {
     }
 
     static let releases: [Release] = [
+        Release(
+            version: "0.60.0",
+            date: "21 October 2026",
+            headline: "Choosing saves from before shows what each one holds — where you are and how far through — picks the one with the most progress, and can be undone.",
+            fixed: [
+                "Choosing LEGO Star Wars' saves of 17 October put them back — and pressing Play a moment later asked again, with the copy Anvil had just made of the new game picked, and put the new game back over them. Once you've answered, nothing up to then is asked about again; Anvil's own safety copies (\"… before restoring\") are listed so they can be had back, but never prompt the question or get picked.",
+                "Newest isn't best: on 21 October the newest saves of LEGO Star Wars were the new game started over the finished one. Where Anvil can read a game's saves it now picks the one furthest through, and doesn't ask at all when nothing from before is further than what the game has now.",
+                "A Documents folder Wine links to your Mac's own is one folder every Windows setup shares — Cat Quest II keeps its saves there. It was listed as saves left in each other setup, and choosing one would have moved the folder aside and copied it onto itself. It isn't listed now, and copying a folder onto itself is refused.",
+                "Looking for saves from before followed a link Wine 7.7 makes in its Windows profile (AppData/Roaming/Microsoft/Windows/Templates) to your whole home folder. Nothing Anvil walks to find saves follows a link now.",
+                "Restore from a File… exports what the game has first, as choosing saves from before does, so it can be undone — and refuses an export of a different game.",
+            ],
+            added: [
+                "What's in each save: for LEGO games Anvil reads the slot screen's own line from the save files — \"Episode Select · 34.3% complete\", \"Coruscant · Episode I · 0.9% complete\" — and shows it on every choice with a progress bar, a Most Progress badge, and how far ahead or behind what the game has now each one is.",
+                "Save Guard's backups — the copy Anvil makes before each play — are among the choices, folded away under their own heading: LEGO Star Wars' history since 1 October, one day at a time. Copies holding the same saves (an export, its backup, the setup it came from) are listed once, with how many copies there are.",
+                "Undo: right after a restore, and as Undo Last Restore on the game's page, Anvil puts back the saves the game had just before. Undoing is a restore too, so it can be undone.",
+                "When Anvil opens after an update, macOS asks once whether it may open your Documents folder, where save exports are kept, and the look for saves from before waits on that answer. Anvil now says so in its window while it waits.",
+                "Show in Finder on an export or a backup in the list.",
+            ],
+            known: [
+                "Anvil isn't signed with a developer certificate, so after an update macOS can ask again whether Anvil may open your Documents folder — it did for 0.59.2 and not for 0.60.0. Choosing Allow is what lets Anvil read and keep your exports there.",
+                "How far through a game is read for TT Games' LEGO games so far; other games' choices show dates, files and sizes as before.",
+            ]),
         Release(
             version: "0.59.1",
             date: "21 October 2026",

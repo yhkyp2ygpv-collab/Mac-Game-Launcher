@@ -61,27 +61,40 @@ enum GameSaves {
     }
 
     /// The Windows user's profile folder in a container ("drive_c/users/crossover").
-    nonisolated static func profile(in container: Container) -> URL? {
-        let users = container.driveC.appendingPathComponent("users")
+    nonisolated static func profile(in container: Container) -> URL? { profile(driveC: container.driveC) }
+
+    /// The same under any drive C laid out as a container's — one of Save Guard's backups ("…/drive_c").
+    nonisolated static func profile(driveC: URL) -> URL? {
+        let users = driveC.appendingPathComponent("users")
         guard let name = (try? FileManager.default.contentsOfDirectory(atPath: users.path))?
             .sorted().first(where: { $0 != "Public" && !$0.hasPrefix(".") }) else { return nil }
         return users.appendingPathComponent(name, isDirectory: true)
     }
 
-    /// The game's save folders in its container.
-    nonisolated static func places(for game: Game, in container: Container, aloneInContainer: Bool) -> [Place] {
+    /// The game's save folders in its container. `macDocuments`: false leaves out a Documents linked out to
+    /// the Mac's own — one folder every setup shares, so it isn't a setup's own saves to choose or copy.
+    nonisolated static func places(for game: Game, in container: Container, aloneInContainer: Bool,
+                                   macDocuments: Bool = true) -> [Place] {
+        places(for: game, driveC: container.driveC, aloneInContainer: aloneInContainer, macDocuments: macDocuments,
+               steamFolder: SteamSupport.steamDir(in: container))
+    }
+
+    /// The same under any drive C laid out as a container's — a Save Guard backup's, where a Documents that was linked
+    /// out is a folder of its own.
+    nonisolated static func places(for game: Game, driveC driveCURL: URL, aloneInContainer: Bool, macDocuments: Bool = true,
+                                   steamFolder: URL? = nil) -> [Place] {
         let fm = FileManager.default
         var out: [Place] = []
         var all: [Place] = []
-        if let profile = profile(in: container) {
-            let driveC = container.driveC.resolvingSymlinksInPath().path + "/"
+        if let profile = profile(driveC: driveCURL) {
+            let driveC = driveCURL.resolvingSymlinksInPath().path + "/"
             for root in SaveTransfer.saveRoots {
                 let rootURL = profile.appendingPathComponent(root, isDirectory: true)
                 // A Documents linked out to the Mac's own holds the person's files — and, under the
                 // game's own name, a game's saves (Cat Quest II's "Cat Quest II/save_file1.dat").
                 // Only that folder is looked for; nothing else there is read.
                 guard rootURL.resolvingSymlinksInPath().path.hasPrefix(driveC) else {
-                    if root == "Documents" {
+                    if root == "Documents", macDocuments {
                         for folder in SaveGuard.documentsFolders(for: [game.title, game.executableURL.deletingPathExtension().lastPathComponent]) {
                             let url = rootURL.appendingPathComponent(folder, isDirectory: true)
                             var isDir: ObjCBool = false
@@ -93,7 +106,8 @@ enum GameSaves {
                     continue
                 }
                 guard let entries = try? fm.contentsOfDirectory(at: rootURL, includingPropertiesForKeys: nil) else { continue }
-                for entry in entries where entry.hasDirectoryPath && !SaveTransfer.isNoise(entry.lastPathComponent) {
+                for entry in entries where entry.hasDirectoryPath && !SaveTransfer.isNoise(entry.lastPathComponent)
+                    && (try? entry.resourceValues(forKeys: [.isSymbolicLinkKey]))?.isSymbolicLink != true {
                     // "Documents" holds "My Games" (its own root) — not a save of its own.
                     if root == "Documents", entry.lastPathComponent == "My Games" { continue }
                     let rel = root + "/" + entry.lastPathComponent
@@ -111,7 +125,8 @@ enum GameSaves {
                         let size = SaveTransfer.directorySize(child)
                         if size > 0 { out.append(Place(relativePath: rel + "/" + child.lastPathComponent, bytes: size)); matchedChild = true }
                     }
-                    if !matchedChild {
+                    // Sized only when it may be taken: in a setup of the game's own.
+                    if !matchedChild, aloneInContainer {
                         let size = SaveTransfer.directorySize(entry)
                         if size > 0 { all.append(Place(relativePath: rel, bytes: size)) }
                     }
@@ -119,12 +134,12 @@ enum GameSaves {
             }
         }
         // Steam's cloud copy of the game's saves, for each account that played it.
-        if let appID = game.steamAppID {
-            let userdata = SteamSupport.steamDir(in: container).appendingPathComponent("userdata", isDirectory: true)
+        if let appID = game.steamAppID, let steamFolder {
+            let userdata = steamFolder.appendingPathComponent("userdata", isDirectory: true)
             for account in (try? fm.contentsOfDirectory(atPath: userdata.path)) ?? [] {
                 let folder = userdata.appendingPathComponent(account).appendingPathComponent(appID, isDirectory: true)
                 guard fm.fileExists(atPath: folder.path) else { continue }
-                let rel = String(folder.path.dropFirst(container.driveC.path.count + 1))
+                let rel = String(folder.path.dropFirst(driveCURL.path.count + 1))
                 out.append(Place(relativePath: rel, bytes: SaveTransfer.directorySize(folder), underDriveC: true))
             }
         }
@@ -133,9 +148,11 @@ enum GameSaves {
         return out
     }
 
-    nonisolated static func source(of place: Place, in container: Container) -> URL? {
-        place.underDriveC ? container.driveC.appendingPathComponent(place.relativePath)
-                          : profile(in: container)?.appendingPathComponent(place.relativePath)
+    nonisolated static func source(of place: Place, in container: Container) -> URL? { source(of: place, driveC: container.driveC) }
+
+    nonisolated static func source(of place: Place, driveC: URL) -> URL? {
+        place.underDriveC ? driveC.appendingPathComponent(place.relativePath)
+                          : profile(driveC: driveC)?.appendingPathComponent(place.relativePath)
     }
 
     /// Where an export is put together, and one is unpacked: Anvil's own folder, on the disk the
@@ -217,12 +234,20 @@ enum GameSaves {
     /// Returns how many folders were copied.
     @discardableResult
     nonisolated static func copy(_ places: [Place], from other: Container, into container: Container) throws -> Int {
+        try copy(places, fromDriveC: other.driveC, into: container)
+    }
+
+    /// The same from any drive C laid out as a container's — one of Save Guard's backups.
+    @discardableResult
+    nonisolated static func copy(_ places: [Place], fromDriveC otherDriveC: URL, into container: Container) throws -> Int {
         let fm = FileManager.default
         var n = 0
         for place in places {
             guard !place.relativePath.contains(".."), !place.relativePath.hasPrefix("/"),
-                  let from = source(of: place, in: other), fm.fileExists(atPath: from.path),
-                  let to = source(of: place, in: container) else { continue }
+                  let from = source(of: place, driveC: otherDriveC), fm.fileExists(atPath: from.path),
+                  let to = source(of: place, in: container),
+                  // Both setups' Documents linked to the Mac's: one folder — moving it aside would lose it.
+                  from.resolvingSymlinksInPath().path != to.resolvingSymlinksInPath().path else { continue }
             try fm.createDirectory(at: to.deletingLastPathComponent(), withIntermediateDirectories: true)
             if fm.fileExists(atPath: to.path) {
                 let aside = to.deletingLastPathComponent()

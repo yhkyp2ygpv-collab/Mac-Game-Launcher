@@ -17,6 +17,8 @@ struct GameSavesSection: View {
     @State private var folderBytes: Int64?
     @State private var offered = false
     @ObservedObject private var saveChoice = SaveChoice.shared
+    /// What Undo Last Restore would put back, looked for when the page opens and after each restore.
+    @State private var undo: (candidate: SaveVault.Candidate, at: Date)?
 
     private var game: Game? { library.games.first { $0.id == gameID } }
 
@@ -33,8 +35,16 @@ struct GameSavesSection: View {
             }
             .disabled(working != nil || game == nil || running || saveChoice.pending != nil)
             if offered, saveChoice.pending == nil, game.map({ SaveVault.askedUpTo($0) }) == 0 {
-                Text("No exports or other Windows setups with saves of this game were found. Restore from a File… picks any export.")
+                Text("No exports, other Windows setups or backups with saves of this game were found. Restore from a File… picks any export.")
                     .font(.caption).foregroundStyle(.secondary)
+            }
+            if let undo {
+                Button { Task { await undoLast() } } label: {
+                    Label("Undo Last Restore", systemImage: "arrow.uturn.backward")
+                }
+                .disabled(working != nil || running || saveChoice.pending != nil)
+                Text("Puts back the saves it had before the restore of \(undo.at.formatted(date: .abbreviated, time: .shortened))\(undo.candidate.summary.map { " (\($0.text))" } ?? "").")
+                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
             Button { Task { await restore() } } label: {
                 Label("Restore from a File…", systemImage: "doc.zipper")
@@ -54,9 +64,10 @@ struct GameSavesSection: View {
                 Label(failure, systemImage: "exclamationmark.triangle").font(.caption).foregroundStyle(.orange)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            Text("Export puts this game's saves in one .zip file — only its saves, not the game — kept in Documents › Anvil Saves and in Anvil too. Choose Saves from Before lists every export of this game and any other Windows setup that has its saves, by date, and puts the one you pick back; what it has now is exported first, and anything in the way is moved aside, not overwritten. Delete exports the saves first, then moves the game's folder to the Trash, or deletes it at once to free the space now.")
+            Text("Export puts this game's saves in one .zip file — only its saves, not the game — kept in Documents › Anvil Saves and in Anvil too. Choose Saves from Before lists every export of this game, any other Windows setup that has its saves and the backups Anvil made before each play — newest first, each with how far through it is where Anvil can read the game's saves — and puts the one you pick back; what it has now is exported first, so Undo Last Restore can always put it back, and anything in the way is moved aside, not overwritten. Delete exports the saves first, then moves the game's folder to the Trash, or deletes it at once to free the space now.")
                 .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
         }
+        .task(id: saveChoice.changes) { await lookForUndo() }
         .confirmationDialog(deleteTitle, isPresented: $confirmDelete, titleVisibility: .visible) {
             Button("Export Saves and Move to Trash", role: .destructive) { Task { await deleteKeepingSaves(permanently: false) } }
             if game.map({ GameRemoval.plan(for: $0).folder != nil }) == true {
@@ -144,7 +155,7 @@ struct GameSavesSection: View {
     }
 
     private func restore() async {
-        guard let game, let container = library.container(id: game.containerID) else { return }
+        guard let game else { return }
         let panel = NSOpenPanel()
         panel.allowedContentTypes = [.zip]
         panel.prompt = "Restore"
@@ -154,12 +165,35 @@ struct GameSavesSection: View {
         working = "Restoring saves…"
         failure = nil
         defer { working = nil }
-        do {
-            let manifest = try await Task.detached(priority: .userInitiated) { try GameSaves.restore(from: zip, into: container) }.value
-            message = "Restored \(manifest.places.count) save folder\(manifest.places.count == 1 ? "" : "s") from \(manifest.game)'s export."
-            AnvilLog.write("saves: \(game.title) — restored \(manifest.places.count) folder(s) from \(zip.lastPathComponent)")
-        } catch {
-            failure = error.localizedDescription
+        // Any export, the way a choice from before is put back: what it has now exported first, so it can be undone.
+        guard let manifest = try? await Task.detached(priority: .userInitiated, operation: { try GameSaves.manifest(of: zip) }).value else {
+            failure = GameSaves.Failure.notAnExport.localizedDescription
+            return
+        }
+        if !SaveVault.matches(manifest, game) {
+            failure = "That export is of \(manifest.game), not \(game.title)."
+            return
+        }
+        let candidate = await Task.detached(priority: .userInitiated) { SaveVault.candidate(zips: [zip], exportedAt: manifest.exportedAt) }.value
+        switch await SaveChoice.shared.restore(candidate, for: game) {
+        case .success(let what): message = what.prefix(1).uppercased() + what.dropFirst() + "."
+        case .failure(let error): failure = error.localizedDescription
+        }
+    }
+
+    private func lookForUndo() async {
+        guard let game else { undo = nil; return }
+        undo = await Task.detached(priority: .utility) { SaveVault.undo(for: game) }.value
+    }
+
+    private func undoLast() async {
+        guard let game else { return }
+        working = "Putting back the saves it had before…"
+        failure = nil
+        defer { working = nil }
+        switch await SaveChoice.shared.undo(game) {
+        case .success: message = "Undone: \(game.title) has the saves it had before the last restore. That can be undone too."
+        case .failure(let error): failure = error.localizedDescription
         }
     }
 

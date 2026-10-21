@@ -44,6 +44,18 @@ struct RootView: View {
                     }
                 }
                 .animation(.easeOut(duration: 0.2), value: launcher.sessions.map(\.id))
+                .safeAreaInset(edge: .top, spacing: 0) {
+                    if let checking = saveChoice.checking {
+                        HStack(spacing: 8) {
+                            ProgressView().controlSize(.small)
+                            Text(checking).font(.callout).fixedSize(horizontal: false, vertical: true)
+                            Spacer(minLength: 0)
+                        }
+                        .padding(10)
+                        .background(RoundedRectangle(cornerRadius: 10).fill(.bar))
+                        .padding(.horizontal, 22).padding(.top, 8)
+                    }
+                }
         }
         .sheet(isPresented: $showNewContainer) { newContainerSheet }
         .sheet(isPresented: $showWhatsNew) { WhatsNewView() }
