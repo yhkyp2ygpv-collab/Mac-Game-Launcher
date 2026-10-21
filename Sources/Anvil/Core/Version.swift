@@ -6,7 +6,7 @@ import Foundation
 /// always say exactly what it is — the point is to be able to tell whether the app
 /// in front of you includes a given fix.
 enum AnvilVersion {
-    static let current = "0.60.0"
+    static let current = "0.61.0"
     static let build = buildStamp
 
     /// Baked at compile time from the source's own modification date, so two builds
@@ -34,6 +34,24 @@ enum AnvilVersion {
     }
 
     static let releases: [Release] = [
+        Release(
+            version: "0.61.0",
+            date: "21 October 2026",
+            headline: "DLC you own downloads in Anvil: each game's page lists yours, with Download, and installing a game brings its DLC.",
+            fixed: [
+                "Installing an Epic game never brought its DLC: Anvil asked Epic's tool to install the game and nothing more. LEGO Star Wars' Classic Obi-Wan, owned, wasn't downloaded with the game on 19 October. Installing a game now brings every DLC of it you own.",
+                "A game's page listed every DLC the store sells as \"Not installed\" — fourteen for LEGO Star Wars — whether you owned it or not, and said only that it was \"either not owned or not downloaded yet\".",
+            ],
+            added: [
+                "DLC on a game's page: yours first — Installed, Download, or Unlocks in the game for DLC that has no files of its own — with the download's progress and Stop; what isn't on your account folded away under its own heading. Download All when there's more than one, and Check Epic Again for DLC bought since Epic's list was last read.",
+                "A Download Your DLC button on the game's page itself when DLC of yours isn't downloaded, and the same on the Epic page beside the game.",
+                "Steam games list the DLC you own, read from Steam's own files, with Show in Steam: Steam downloads owned DLC with the game and keeps it up to date itself.",
+                "After Epic's list is read, the log names each installed game with DLC of yours not downloaded.",
+            ],
+            known: [
+                "DLC downloads into its game's folder, so it can't be downloaded while the game runs, and stopping one keeps what's downloaded — it's never deleted with a folder.",
+                "A game installed by Mythic or Heroic gets its DLC there; Anvil picks it up.",
+            ]),
         Release(
             version: "0.60.0",
             date: "21 October 2026",

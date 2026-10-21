@@ -57,6 +57,10 @@ final class EpicLibrary: ObservableObject {
     @Published private(set) var stopped: [String: String] = [:]
     /// A refresh asked for offline, waiting for the connection.
     private var refreshWaiting = false
+    /// DLC downloads, by the DLC's app name: they go into their game's folder, so stopping one never deletes a folder.
+    private var dlcApps: Set<String> = []
+    /// Bumped as DLC finishes installing (or Epic's list is read again), so what shows a game's DLC reads it again.
+    @Published private(set) var dlcChanges = 0
 
     /// The list as it was last read from Epic, kept on disk. `legendary list` takes 10–30 s for
     /// an account with 200 games (209 here on 10 October: Epic's weekly free games add up), and
@@ -140,6 +144,12 @@ final class EpicLibrary: ObservableObject {
             try? saved.write(to: Self.listCache)
         }
         AnvilLog.write(String(format: "epic: %d games owned (read from Epic in %.1f s)", owned.count, Date().timeIntervalSince(began)))
+        dlcChanges += 1
+        for game in Library.shared.games where game.epicAppName != nil {
+            guard let link = EpicLink.find(for: game), link.launcher == "Anvil", !link.dlcToDownload.isEmpty else { continue }
+            AnvilLog.write("epic: \(game.title) — \(link.dlcToDownload.count) DLC of yours not downloaded: "
+                           + link.dlcToDownload.map(\.title).joined(separator: ", "))
+        }
         if EpicAccount.shared.accountName == nil { await EpicAccount.shared.readAccountName() }
     }
 
@@ -218,6 +228,14 @@ final class EpicLibrary: ObservableObject {
     }
 
     func isInstalled(_ appName: String) -> Bool { Self.installed().contains { $0.appName == appName } }
+
+    /// Every app legendary has installed through Anvil, DLC (which has no program of its own) included.
+    nonisolated static func installedApps() -> Set<String> {
+        let url = EpicAccount.configDir.appendingPathComponent("installed.json")
+        guard let data = try? Data(contentsOf: url),
+              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return [] }
+        return Set(root.keys)
+    }
 
     /// Every game installed through Anvil, in the library.
     @discardableResult
@@ -306,7 +324,7 @@ final class EpicLibrary: ObservableObject {
         let before = Set(Self.folders(in: Self.gamesDir).map(\.lastPathComponent))
         AnvilLog.write("epic: installing \(title.title) into \(Self.gamesDir.path)")
         let app = title.appName
-        let status = await Self.runInstall(tool, appName: app, into: Self.gamesDir) { update in
+        let status = await Self.runInstall(tool, appName: app, into: Self.gamesDir, withDLC: true) { update in
             Task { @MainActor in
                 let lib = EpicLibrary.shared
                 guard lib.installing[app] != nil else { return }
@@ -351,11 +369,66 @@ final class EpicLibrary: ObservableObject {
         await importInstalled()
     }
 
+    // MARK: DLC
+
+    /// DLC the account owns, into the game it's for: `legendary install <DLC's app>`, which puts its files in the game's
+    /// folder and records it beside the game. One at a time, in order. Not while the game runs — its files are in use.
+    func installDLC(_ items: [EpicLink.DLC], of gameTitle: String) async {
+        for item in items where item.toDownload {
+            guard let app = item.appName else { continue }
+            await installOneDLC(app: app, title: item.title, of: gameTitle)
+            if lastError != nil { break }
+        }
+    }
+
+    private func installOneDLC(app: String, title: String, of gameTitle: String) async {
+        guard let tool = legendary else { lastError = "Anvil's Epic tool isn't installed yet."; return }
+        guard installing[app] == nil else { return }
+        guard Connectivity.isOnlineNow else { lastError = "Downloading DLC needs an internet connection."; return }
+        installing[app] = 0
+        downloads[app] = Download()
+        stopped[app] = nil
+        cancelled.remove(app)
+        dlcApps.insert(app)
+        lastError = nil
+        AnvilLog.write("epic: installing DLC \(title) into \(gameTitle)")
+        let status = await Self.runInstall(tool, appName: app, into: Self.gamesDir, withDLC: false) { update in
+            Task { @MainActor in
+                let lib = EpicLibrary.shared
+                guard lib.installing[app] != nil else { return }
+                var d = lib.downloads[app] ?? Download()
+                if let f = update.fraction { d.fraction = f; lib.installing[app] = f }
+                if let v = update.speed { d.speed = v }
+                if let t = update.secondsLeft { d.secondsLeft = t }
+                if let b = update.downloadBytes { d.downloadBytes = b }
+                if let b = update.installBytes { d.installBytes = b }
+                // The folder it names is the game's own: never one a stopped download may clear.
+                lib.downloads[app] = d
+            }
+        }
+        installing[app] = nil
+        downloads[app] = nil
+        dlcApps.remove(app)
+        dlcChanges += 1
+        if cancelled.remove(app) != nil {
+            stopped[app] = "Stopped — downloading it again carries on from there."
+            AnvilLog.write("epic: DLC \(title) — download stopped")
+            return
+        }
+        guard status == 0, Self.installedApps().contains(app) else {
+            lastError = "\(title) didn't finish installing (\(status)). The connection and free disk space are the usual reasons; downloading again carries on where it stopped."
+            AnvilLog.write("epic: install of DLC \(title) ended with \(status)")
+            return
+        }
+        AnvilLog.write("epic: DLC \(title) installed into \(gameTitle)")
+    }
+
     /// A download under way stopped. legendary is interrupted as Ctrl-C would — it writes down what it has, so
     /// installing again carries on — and ended outright if it hasn't in 10 s. With `deleting`, what it had
-    /// downloaded goes to the Trash too, with its note of where it was.
+    /// downloaded goes to the Trash too, with its note of where it was — never for DLC, which is in its game's folder.
     func cancel(_ appName: String, deleting: Bool) {
         guard installing[appName] != nil else { return }
+        let deleting = deleting && !dlcApps.contains(appName)
         cancelled.insert(appName)
         let folder = downloads[appName]?.folder
         let title = owned.first { $0.appName == appName }?.title ?? appName
@@ -557,12 +630,15 @@ final class EpicLibrary: ObservableObject {
         return Double(line[dash.upperBound...].prefix { $0.isNumber || $0 == "." })
     }
 
-    nonisolated static func runInstall(_ tool: URL, appName: String, into dir: URL,
+    /// `withDLC`: a game's install brings every DLC of it the account owns that has files of its own (legendary's
+    /// --with-dlcs). Until 0.61 `--yes` alone was passed, which skips them: LEGO Star Wars' Classic Obi-Wan, owned,
+    /// was never downloaded with the game on 19 October.
+    nonisolated static func runInstall(_ tool: URL, appName: String, into dir: URL, withDLC: Bool,
                                        progress: @escaping @Sendable (ProgressUpdate) -> Void) async -> Int32 {
         await withCheckedContinuation { continuation in
             let p = Process()
             p.executableURL = tool
-            p.arguments = ["install", appName, "--platform", "Windows", "--base-path", dir.path, "--yes", "--skip-sdl"]
+            p.arguments = installArguments(appName: appName, into: dir, withDLC: withDLC)
             var env = ProcessInfo.processInfo.environment
             env["LEGENDARY_CONFIG_PATH"] = EpicAccount.configDir.path
             for key in env.keys where key.hasPrefix("DYLD_") || key.hasPrefix("WINE") || key.hasPrefix("ANVIL_") {
@@ -591,6 +667,10 @@ final class EpicLibrary: ObservableObject {
                 runningLock.lock(); running[appName] = p; runningLock.unlock()
             } catch { EpicVault.close(); continuation.resume(returning: -1) }
         }
+    }
+
+    nonisolated static func installArguments(appName: String, into dir: URL, withDLC: Bool) -> [String] {
+        ["install", appName, "--platform", "Windows", "--base-path", dir.path, "--yes", "--skip-sdl"] + (withDLC ? ["--with-dlcs"] : [])
     }
 
     /// "[DLManager] INFO: = Progress: 12.34% (…)" → 0.1234.

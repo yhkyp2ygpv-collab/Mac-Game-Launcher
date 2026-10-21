@@ -434,6 +434,8 @@ struct EpicGameRow: View {
     @State private var confirmDelete = false
     @State private var deleting = false
     @State private var deleteResult: String?
+    /// The installed game's DLC, read when the row shows and after each DLC download.
+    @State private var dlc: EpicLink?
 
     private var game: Game? { library.games.first { $0.epicAppName == title.appName } }
     private var installed: EpicLibrary.Installed? { EpicLibrary.installed().first { $0.appName == title.appName } }
@@ -459,6 +461,7 @@ struct EpicGameRow: View {
                     Text(installed.installSize.map { "\(EpicLibrary.bytes($0)) on this Mac" } ?? "Installed")
                         .font(.caption).foregroundStyle(.secondary)
                 }
+                if let dlc, dlc.launcher == "Anvil", progress == nil { dlcLine(dlc) }
             }
             Spacer()
             Button { showInfo = true } label: { Image(systemName: "info.circle") }
@@ -477,6 +480,10 @@ struct EpicGameRow: View {
         }
         .padding(.vertical, 6).padding(.horizontal, 10)
         .background(.quaternary.opacity(0.3), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .task(id: "\(epic.dlcChanges)-\(game?.id.uuidString ?? "")") {
+            guard let game else { dlc = nil; return }
+            dlc = await Task.detached(priority: .utility) { EpicLink.find(for: game) }.value
+        }
         .confirmationDialog("Stop downloading \(title.title)?", isPresented: $confirmStop, titleVisibility: .visible) {
             Button("Stop, Keep What's Downloaded") { epic.cancel(title.appName, deleting: false) }
             Button("Stop and Delete the Download", role: .destructive) { epic.cancel(title.appName, deleting: true) }
@@ -492,6 +499,32 @@ struct EpicGameRow: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("Its saves are exported first, to Documents › Anvil Saves. Then its folder\(installed.map { ", \($0.installPath.path)," } ?? "") goes to the Trash — the space is freed once the Trash is emptied — or, with Delete Now, is deleted at once. It leaves your library; Install brings it back.")
+        }
+    }
+
+    /// The DLC of yours it has, and what isn't downloaded yet, with the download.
+    @ViewBuilder
+    private func dlcLine(_ link: EpicLink) -> some View {
+        let apps = link.dlc.compactMap(\.appName)
+        if let app = apps.first(where: { epic.installing[$0] != nil }), let p = epic.installing[app] {
+            let name = link.dlc.first { $0.appName == app }?.title ?? "DLC"
+            HStack(spacing: 6) {
+                ProgressView(value: p).frame(width: 120)
+                Text("\(name) — " + EpicStoreView.downloadText(p, epic.downloads[app])).lineLimit(1)
+            }
+            .font(.caption).foregroundStyle(.secondary)
+        } else if !link.dlcToDownload.isEmpty {
+            HStack(spacing: 8) {
+                Label(link.dlcToDownload.count == 1 ? "Your DLC \(link.dlcToDownload[0].title) isn't downloaded"
+                                                    : "\(link.dlcToDownload.count) DLC of yours aren't downloaded",
+                      systemImage: "arrow.down.circle").foregroundStyle(.orange)
+                Button("Download") { Task { await epic.installDLC(link.dlcToDownload, of: title.title) } }
+                    .controlSize(.small)
+                    .disabled(game.map { launcher.isBusy($0) } ?? true)
+            }
+            .font(.caption)
+        } else if !link.ownedDLC.isEmpty {
+            Text("\(link.ownedDLC.count) DLC of yours, all here").font(.caption).foregroundStyle(.secondary)
         }
     }
 

@@ -20,6 +20,15 @@ struct EpicLink: Hashable {
         var id: String          // catalogue item id
         var title: String
         var installed: Bool
+        /// Its own app on Epic (the store's "releaseInfo"): what legendary installs it as.
+        var appName: String? = nil
+        /// On the account, as legendary last read it: among the apps it can download, or its entitlements.
+        var owned = false
+        /// Owned, with files of its own to download — legendary puts them in the game's folder. Owned DLC without
+        /// is unlocked by ownership alone: the game finds it once it starts signed in.
+        var downloadable = false
+        /// Owned and not here yet: what Download gets.
+        var toDownload: Bool { downloadable && !installed }
     }
 
     var appName: String
@@ -33,6 +42,9 @@ struct EpicLink: Hashable {
     var dlc: [DLC]
 
     var installedDLC: [DLC] { dlc.filter(\.installed) }
+    var ownedDLC: [DLC] { dlc.filter { $0.owned || $0.installed } }
+    /// Owned DLC with files of its own that aren't installed — LEGO Star Wars' Classic Obi-Wan on 21 October.
+    var dlcToDownload: [DLC] { dlc.filter(\.toDownload) }
 
     // MARK: Discovery
 
@@ -109,6 +121,8 @@ struct EpicLink: Hashable {
         guard let base = catalogue(appName) else { return [] }
         let baseID = base["id"] as? String
 
+        let owns = owned(configDir: configDir)
+
         // Installed DLC, by catalogue id: legendary records each as its own install
         // with is_dlc set, and the DLC's catalogue entry names its main game.
         var installedIDs = Set<String>()
@@ -127,16 +141,41 @@ struct EpicLink: Hashable {
         var listed = Set<String>()
         for item in (base["dlcItemList"] as? [[String: Any]]) ?? [] {
             guard let id = item["id"] as? String, listed.insert(id).inserted else { continue }
-            list.append(DLC(id: id, title: (item["title"] as? String) ?? id, installed: installedIDs.contains(id)))
+            let releases = (item["releaseInfo"] as? [[String: Any]]) ?? []
+            let app = (releases.first { ($0["platform"] as? [String])?.contains("Windows") == true } ?? releases.first)?["appId"] as? String
+            let downloadable = app.map { owns.apps.contains($0) } ?? false
+            list.append(DLC(id: id, title: (item["title"] as? String) ?? id, installed: installedIDs.contains(id), appName: app,
+                            owned: downloadable || owns.items.contains(id), downloadable: downloadable))
         }
         // Installed DLC the catalogue copy does not list yet (it is refreshed less often).
         for id in installedIDs where !listed.contains(id) {
-            list.append(DLC(id: id, title: installedTitles[id] ?? id, installed: true))
+            list.append(DLC(id: id, title: installedTitles[id] ?? id, installed: true, owned: true))
         }
+        // Installed, then yours to download, then yours that unlocks by itself, then what isn't yours; by name.
+        func rank(_ d: DLC) -> Int { d.installed ? 0 : d.toDownload ? 1 : d.owned ? 2 : 3 }
         return list.sorted {
-            $0.installed != $1.installed ? $0.installed
+            rank($0) != rank($1) ? rank($0) < rank($1)
                 : $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending
         }
+    }
+
+    /// What the account owns, as legendary last read it from Epic (each `legendary list`, which the Epic page runs):
+    /// the Windows apps it can download — games and DLC with files of their own (assets.json) — and the catalogue items
+    /// of its entitlements (entitlements.json). Neither file holds a sign-in.
+    static func owned(configDir: URL) -> (apps: Set<String>, items: Set<String>) {
+        var apps = Set<String>()
+        if let data = try? Data(contentsOf: configDir.appendingPathComponent("assets.json")),
+           let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] {
+            for asset in (root["Windows"] as? [[String: Any]]) ?? [] {
+                if let app = asset["app_name"] as? String { apps.insert(app) }
+            }
+        }
+        var items = Set<String>()
+        if let data = try? Data(contentsOf: configDir.appendingPathComponent("entitlements.json")),
+           let list = (try? JSONSerialization.jsonObject(with: data)) as? [[String: Any]] {
+            for e in list { if let id = e["catalogItemId"] as? String { items.insert(id) } }
+        }
+        return (apps, items)
     }
 
     private static func readJSON(_ url: URL) -> [String: Any]? {

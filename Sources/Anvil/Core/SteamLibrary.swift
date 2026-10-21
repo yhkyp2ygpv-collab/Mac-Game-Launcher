@@ -118,6 +118,14 @@ enum SteamLibrary {
 
     /// appinfo.vdf: the name and kind of each app in `only`, skipping the rest by their sizes.
     nonisolated static func appKinds(_ data: Data, only: Set<UInt32>) -> [UInt32: (name: String, type: String)] {
+        apps(data, only: only).mapValues { app in
+            let common = app["common"] as? [String: Any]
+            return ((common?["name"] as? String) ?? "", (common?["type"] as? String) ?? "")
+        }
+    }
+
+    /// appinfo.vdf: each app in `only` as Steam keeps it ("common", "depots", …).
+    nonisolated static func apps(_ data: Data, only: Set<UInt32>) -> [UInt32: [String: Any]] {
         var r = Reader(data: data, at: 0, strings: nil)
         guard let magic = r.u32(), let _ = r.u32() else { return [:] }
         let version = magic & 0xFF
@@ -135,21 +143,69 @@ enum SteamLibrary {
         // After the app's id and size: state, last updated, token, SHA-1, change number, and from
         // v28 the binary SHA-1.
         let fixed = 4 + 4 + 8 + 20 + 4 + (version >= 0x28 ? 20 : 0)
-        var out: [UInt32: (String, String)] = [:]
+        var out: [UInt32: [String: Any]] = [:]
         while let appID = r.u32(), appID != 0 {
             guard let size = r.u32() else { break }
             let end = r.at + Int(size)
             guard end <= data.count else { break }
             if only.contains(appID) {
                 var entry = Reader(data: data, at: r.at + fixed, strings: strings)
-                if let root = entry.map(),
-                   let common = (root["appinfo"] as? [String: Any])?["common"] as? [String: Any] {
-                    out[appID] = ((common["name"] as? String) ?? "", (common["type"] as? String) ?? "")
-                }
+                if let app = entry.map()?["appinfo"] as? [String: Any] { out[appID] = app }
             }
             r.at = end
         }
         return out
+    }
+
+    // MARK: DLC
+
+    struct DLC: Identifiable, Hashable, Sendable {
+        var id: String { appID }
+        var appID: String
+        var name: String
+        /// With files of its own (a depot of the game's): Steam downloads them with the game. Without, it's unlocked by
+        /// owning it alone.
+        var hasFiles: Bool
+        /// Its files are in the game's installed copy (the game's manifest lists its depot), or it has none to install.
+        var installed: Bool
+    }
+
+    /// The DLC of a game the account owns, from the same files as its games: apps of the kind "DLC" whose parent is the
+    /// game, among those its licences cover. Steam downloads owned DLC with the game and keeps it up to date itself.
+    nonisolated static func dlc(of appID: String, in c: Container) -> [DLC] {
+        guard let game = UInt32(appID) else { return [] }
+        let cache = SteamSupport.steamDir(in: c).appendingPathComponent("appcache", isDirectory: true)
+        guard let packages = try? Data(contentsOf: cache.appendingPathComponent("packageinfo.vdf")),
+              let info = try? Data(contentsOf: cache.appendingPathComponent("appinfo.vdf")) else { return [] }
+        var candidates = Set<UInt32>()
+        for (package, apps) in packageApps(packages) where package != 0 { candidates.formUnion(apps) }
+        candidates.insert(game)
+        let found = apps(info, only: candidates)
+        // The game's depots that belong to a DLC: "depots" › <id> › "dlcappid".
+        var withFiles = Set<String>()
+        for case let depot as [String: Any] in ((found[game]?["depots"] as? [String: Any]) ?? [:]).values {
+            if let dlc = depot["dlcappid"] { withFiles.insert("\(dlc)") }
+        }
+        let installed = installedDLC(of: appID, in: c)
+        return found.compactMap { id, app -> DLC? in
+            guard id != game, let common = app["common"] as? [String: Any],
+                  (common["type"] as? String)?.lowercased() == "dlc", "\(common["parent"] ?? "")" == appID else { return nil }
+            let has = withFiles.contains(String(id))
+            return DLC(appID: String(id), name: (common["name"] as? String) ?? "DLC \(id)", hasFiles: has,
+                       installed: !has || installed.contains(String(id)))
+        }
+        .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
+    /// The DLC whose files are in the game's installed copy: its appmanifest's "InstalledDepots" › <depot> › "dlcappid".
+    nonisolated static func installedDLC(of appID: String, in c: Container) -> Set<String> {
+        for folder in SteamSupport.libraryFolders(in: c) {
+            guard let text = try? String(contentsOf: folder.appendingPathComponent("appmanifest_\(appID).acf"), encoding: .utf8),
+                  let state = SteamSupport.parseVDF(text)["appstate"] as? [String: Any] else { continue }
+            let depots = (state["installeddepots"] as? [String: Any]) ?? [:]
+            return Set(depots.values.compactMap { ($0 as? [String: Any])?["dlcappid"] as? String })
+        }
+        return []
     }
 
     /// packageinfo.vdf: each package's apps.

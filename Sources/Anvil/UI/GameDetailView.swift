@@ -15,6 +15,7 @@ struct GameDetailView: View {
     /// Auto-Tune's choice shows in the Graphics picker, so the page follows it.
     @ObservedObject private var tuner = Tuner.shared
     @ObservedObject private var connectivity = Connectivity.shared
+    @ObservedObject private var epicLibrary = EpicLibrary.shared
     @Environment(\.dismiss) private var dismiss
 
     enum Tab: String, CaseIterable, Identifiable {
@@ -134,6 +135,7 @@ struct GameDetailView: View {
                     .font(.callout)
                     .foregroundStyle(.white.opacity(0.8))
                 if let stats = g.lastSession { SessionBadge(stats: stats) }
+                dlcBadge
             }
             .padding(.horizontal, 24)
             .padding(.bottom, 20)
@@ -165,6 +167,31 @@ struct GameDetailView: View {
                 }
             }
             .padding(22)
+        }
+    }
+
+    /// Owned DLC not downloaded yet, said where it's seen first, with the download a click away (its list is under DLC).
+    @ViewBuilder
+    private var dlcBadge: some View {
+        if let link = epic, link.launcher == "Anvil" {
+            let apps = link.dlc.compactMap(\.appName)
+            if let p = apps.compactMap({ epicLibrary.installing[$0] }).first {
+                Label(String(format: "Downloading DLC — %.0f%%", p * 100), systemImage: "arrow.down.circle")
+                    .font(.callout.weight(.medium)).foregroundStyle(.white)
+            } else if !link.dlcToDownload.isEmpty {
+                Button {
+                    let g = game.wrappedValue
+                    Task { await epicLibrary.installDLC(link.dlcToDownload, of: g.title); epic = EpicLink.find(for: g) }
+                } label: {
+                    Label(link.dlcToDownload.count == 1 ? "Download your DLC: \(link.dlcToDownload[0].title)"
+                                                        : "Download your \(link.dlcToDownload.count) DLC",
+                          systemImage: "arrow.down.circle.fill")
+                }
+                .buttonStyle(HeroButtonStyle(prominent: false, tint: .white))
+                .controlSize(.small)
+                .disabled(launcher.isBusy(game.wrappedValue) || !connectivity.isOnline)
+                .help(launcher.isBusy(game.wrappedValue) ? "Close the game first: its files are in use while it runs." : "Downloads into the game's folder.")
+            }
         }
     }
 
@@ -264,6 +291,9 @@ struct GameDetailView: View {
                 LabeledContent("App", value: game.wrappedValue.steamAppID ?? "")
                 note("Started with Steam running and signed in beside it, in the same Windows setup, so its online play, cloud saves and achievements work. Steam closes properly after the game, finishing its cloud saves.")
             }
+            if let c = library.container(id: game.wrappedValue.containerID) {
+                SwiftUI.Section("DLC") { SteamDLCList(game: game.wrappedValue, container: c) }
+            }
         }
 
         if let keep = keepRunningSwitch {
@@ -283,23 +313,9 @@ struct GameDetailView: View {
                 }
                 Button("Sign In to Epic Again…") { showEpicSignIn = true }
                     .controlSize(.small)
-                if epic.dlc.isEmpty {
-                    LabeledContent("DLC", value: "None for this game")
-                } else {
-                    ForEach(epic.dlc) { item in
-                        LabeledContent(item.title) {
-                            if item.installed {
-                                Label("Installed", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
-                            } else {
-                                Text("Not installed").foregroundStyle(.secondary)
-                            }
-                        }
-                        .font(.callout)
-                    }
-                    if epic.dlc.contains(where: { !$0.installed }) {
-                        note("DLC that isn't installed here is either not owned or not downloaded yet. Anvil picks up DLC installed by any launcher the next time you open this.")
-                    }
-                }
+            }
+            SwiftUI.Section("DLC") {
+                EpicDLCList(game: game.wrappedValue, link: epic) { self.epic = EpicLink.find(for: game.wrappedValue) }
             }
         }
     }
