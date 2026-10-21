@@ -15,6 +15,8 @@ struct GameSavesSection: View {
     @State private var confirmDelete = false
     /// What the game's folder takes, measured when the delete is asked for.
     @State private var folderBytes: Int64?
+    @State private var offered = false
+    @ObservedObject private var saveChoice = SaveChoice.shared
 
     private var game: Game? { library.games.first { $0.id == gameID } }
 
@@ -24,8 +26,18 @@ struct GameSavesSection: View {
                 Label("Export Saves…", systemImage: "square.and.arrow.up")
             }
             .disabled(working != nil || game == nil)
+            Button {
+                if let game { Task { await SaveChoice.shared.askIfNeeded(game, force: true); offered = true } }
+            } label: {
+                Label("Choose Saves from Before…", systemImage: "clock.arrow.circlepath")
+            }
+            .disabled(working != nil || game == nil || running || saveChoice.pending != nil)
+            if offered, saveChoice.pending == nil, game.map({ SaveVault.askedUpTo($0) }) == 0 {
+                Text("No exports or other Windows setups with saves of this game were found. Restore from a File… picks any export.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             Button { Task { await restore() } } label: {
-                Label("Restore Saves from an Export…", systemImage: "clock.arrow.circlepath")
+                Label("Restore from a File…", systemImage: "doc.zipper")
             }
             .disabled(working != nil || game == nil || running)
             Button(role: .destructive) { askDelete() } label: {
@@ -42,7 +54,7 @@ struct GameSavesSection: View {
                 Label(failure, systemImage: "exclamationmark.triangle").font(.caption).foregroundStyle(.orange)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            Text("Export puts this game's saves in one .zip file — only its saves, not the game. Restore puts them back where the game looks for them; anything already there is moved aside, not overwritten. Delete exports the saves first, then moves the game's folder to the Trash, or deletes it at once to free the space now.")
+            Text("Export puts this game's saves in one .zip file — only its saves, not the game — kept in Documents › Anvil Saves and in Anvil too. Choose Saves from Before lists every export of this game and any other Windows setup that has its saves, by date, and puts the one you pick back; what it has now is exported first, and anything in the way is moved aside, not overwritten. Delete exports the saves first, then moves the game's folder to the Trash, or deletes it at once to free the space now.")
                 .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
         }
         .confirmationDialog(deleteTitle, isPresented: $confirmDelete, titleVisibility: .visible) {
@@ -119,8 +131,9 @@ struct GameSavesSection: View {
                 try GameSaves.export(game: game, container: container, aloneInContainer: alone, to: destination)
             }.value
             let size = ByteCountFormatter.string(fromByteCount: Int64((try? zip.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0), countStyle: .file)
-            message = "Saved \(zip.lastPathComponent) (\(size)) in \(destination.lastPathComponent)."
-            AnvilLog.write("saves: \(game.title) — exported to \(zip.path) (\(size))")
+            let places = SaveVault.keepCopy(of: zip)
+            message = "Saved \(zip.lastPathComponent) (\(size)) in \(destination.lastPathComponent)" + (places.count > 1 ? ", with a copy kept in Anvil." : ".")
+            AnvilLog.write("saves: \(game.title) — exported to \(zip.path) (\(size)); copies in \(places.count) place\(places.count == 1 ? "" : "s")")
             if folder == nil { NSWorkspace.shared.activateFileViewerSelecting([zip]) }
             return zip
         } catch {

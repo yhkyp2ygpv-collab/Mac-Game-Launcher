@@ -77,7 +77,9 @@ final class SaveTransfer: ObservableObject {
     /// showing up above a 26 MB save makes the list useless.
     nonisolated static let ignoredSubstrings = [
         "crash", "cache", "logs", "log files", "shadercache", "temp", "telemetry",
-        "diagnostics", "webcache", "gfnruntime"
+        "diagnostics", "webcache", "gfnruntime",
+        // What Anvil moved aside when it put saves back (GameSaves.restore/copy): the old saves, kept, not the game's.
+        ".anvil-replaced-"
     ]
 
     nonisolated static func isNoise(_ name: String) -> Bool {

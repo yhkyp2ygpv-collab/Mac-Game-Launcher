@@ -142,8 +142,9 @@ enum GameSaves {
     /// containers are on, so the saves are cloned rather than copied.
     nonisolated static var staging: URL { RuntimeManager.support.appendingPathComponent("Cache/SaveExport", isDirectory: true) }
 
-    /// The game's saves as one .zip in `folder`; its URL.
-    nonisolated static func export(game: Game, container: Container, aloneInContainer: Bool, to folder: URL) throws -> URL {
+    /// The game's saves as one .zip in `folder`; its URL. `suffix` goes after the date in its name ("before restoring").
+    nonisolated static func export(game: Game, container: Container, aloneInContainer: Bool, to folder: URL,
+                                   suffix: String? = nil) throws -> URL {
         let fm = FileManager.default
         let found = places(for: game, in: container, aloneInContainer: aloneInContainer)
         guard !found.isEmpty else { throw Failure.nothingFound(game.title) }
@@ -167,10 +168,11 @@ enum GameSaves {
         let day = ISO8601DateFormatter.string(from: Date(), timeZone: .current, formatOptions: [.withFullDate])
         let safeTitle = game.title.components(separatedBy: CharacterSet(charactersIn: "/:\\")).joined()
             .split(separator: " ").joined(separator: " ")
-        var zip = folder.appendingPathComponent("\(safeTitle) saves \(day).zip")
+        let tail = suffix.map { " \($0)" } ?? ""
+        var zip = folder.appendingPathComponent("\(safeTitle) saves \(day)\(tail).zip")
         var n = 2
         while fm.fileExists(atPath: zip.path) {
-            zip = folder.appendingPathComponent("\(safeTitle) saves \(day) (\(n)).zip"); n += 1
+            zip = folder.appendingPathComponent("\(safeTitle) saves \(day)\(tail) (\(n)).zip"); n += 1
         }
         try run("/usr/bin/ditto", ["-c", "-k", "--norsrc", stage.path, zip.path])
         return zip
@@ -208,6 +210,29 @@ enum GameSaves {
             try run("/bin/cp", ["-Rc", from.path, to.path])
         }
         return manifest
+    }
+
+    /// Save folders from one Windows setup into another, each at its own place — a game downloaded again into a
+    /// new setup gets the saves it left in the old one. What is there already is moved aside, as `restore` does.
+    /// Returns how many folders were copied.
+    @discardableResult
+    nonisolated static func copy(_ places: [Place], from other: Container, into container: Container) throws -> Int {
+        let fm = FileManager.default
+        var n = 0
+        for place in places {
+            guard !place.relativePath.contains(".."), !place.relativePath.hasPrefix("/"),
+                  let from = source(of: place, in: other), fm.fileExists(atPath: from.path),
+                  let to = source(of: place, in: container) else { continue }
+            try fm.createDirectory(at: to.deletingLastPathComponent(), withIntermediateDirectories: true)
+            if fm.fileExists(atPath: to.path) {
+                let aside = to.deletingLastPathComponent()
+                    .appendingPathComponent("\(to.lastPathComponent).anvil-replaced-\(Int(Date().timeIntervalSince1970))")
+                try fm.moveItem(at: to, to: aside)
+            }
+            try run("/bin/cp", ["-Rc", from.path, to.path])
+            n += 1
+        }
+        return n
     }
 
     /// Where a game's own files are, for deleting it: the install folder its store recorded, or

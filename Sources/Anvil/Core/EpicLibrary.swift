@@ -254,6 +254,9 @@ final class EpicLibrary: ObservableObject {
             }
             added.append(found.title)
             AnvilLog.write("epic: added \(found.title) to “\(c.name)”")
+            // Downloaded again: its saves from before, to choose from (SaveVault).
+            let back = game
+            Task { await SaveChoice.shared.askIfNeeded(back) }
         }
         return added
     }

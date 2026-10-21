@@ -20,6 +20,7 @@ struct RootView: View {
     @ObservedObject private var tuner = Tuner.shared
     @ObservedObject private var autopilot = Autopilot.shared
     @ObservedObject private var checkUp = CheckUp.shared
+    @ObservedObject private var saveChoice = SaveChoice.shared
 
     @Environment(\.openWindow) private var openWindow
 
@@ -47,6 +48,10 @@ struct RootView: View {
         .sheet(isPresented: $showNewContainer) { newContainerSheet }
         .sheet(isPresented: $showWhatsNew) { WhatsNewView() }
         .sheet(isPresented: $showSetup) { SetupView() }
+        // A game back with saves from before it: which to play on (SaveVault).
+        .sheet(item: $saveChoice.pending, onDismiss: { saveChoice.finish() }) { request in
+            SaveChoiceSheet(choice: saveChoice, request: request)
+        }
         .onAppear {
             // The first start: the setup. After that, what's new — shown once per version,
             // so it is obvious whether the running build includes a given fix.

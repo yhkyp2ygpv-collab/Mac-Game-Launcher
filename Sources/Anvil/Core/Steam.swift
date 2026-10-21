@@ -345,6 +345,9 @@ final class SteamSupport: ObservableObject {
                 }
                 added.append(found.name)
                 AnvilLog.write("steam: added \(found.name) (app \(found.appID)) from “\(c.name)”")
+                // Downloaded again: its saves from before, to choose from (SaveVault).
+                let back = game
+                Task { await SaveChoice.shared.askIfNeeded(back) }
             }
         }
         var parts: [String] = []

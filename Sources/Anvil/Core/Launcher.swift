@@ -860,6 +860,11 @@ final class Launcher: ObservableObject {
             steps.append("\(name) \(Self.format(clock.now - t))")
             return result
         }
+        // A game back after being deleted and downloaded again, or moved to another Windows setup, with saves from
+        // before it (an export, or the setup it was in): the player chooses which to play on before it starts.
+        // LEGO Star Wars, downloaded again on 19 October into a new setup, started over with its export unused.
+        launching = "Checking for \(game.title)'s saves from before…"
+        await SaveChoice.shared.askIfNeeded(game)
         // A game whose saves are in the Mac's own Documents (Cat Quest II's): macOS asks once
         // whether Anvil may open that folder — again after each new build of Anvil — and until
         // it's answered every read there waits, the game's own load of its save included. On

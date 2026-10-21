@@ -7,7 +7,7 @@ Anvil fixes that. It installs and runs Windows games on Apple silicon Macs, then
 one while you play: sharper upscaling, extra frames in heavy scenes, even frame pacing,
 working controllers and surround sound.
 
-### [⬇ Download Anvil 0.59.0](https://github.com/yhkyp2ygpv-collab/Mac-Game-Launcher/releases/latest)
+### [⬇ Download Anvil 0.59.1](https://github.com/yhkyp2ygpv-collab/Mac-Game-Launcher/releases/latest)
 
 Free · Apple silicon (M1 or later) · macOS 14 Sonoma or newer · **Open source**
 
@@ -53,7 +53,8 @@ Free · Apple silicon (M1 or later) · macOS 14 Sonoma or newer · **Open source
 - **3D surround sound** — spatial audio for every game, and stereo turned into surround.
 - **Memory warm-up** — the parts of a game you play most are read into your Mac's spare
   unified memory as it starts, so places you've been load from memory, not the disk.
-- **Save Guard** — automatic backups of your saves.
+- **Save Guard** — automatic backups of your saves, and every export kept twice. A game you
+  download again gets its saves back: you choose which, by date.
 - **Doctor and Check-Up** — after each session, Anvil explains in plain words what slowed
   the game down or went wrong, and what it changed.
 
@@ -89,7 +90,7 @@ feedback form below.</sub>
 
 ## Install
 
-1. Download `Anvil-0.59.0.dmg` from
+1. Download `Anvil-0.59.1.dmg` from
    [Releases](https://github.com/yhkyp2ygpv-collab/Mac-Game-Launcher/releases/latest).
 2. Open it and drag **Anvil** into **Applications**.
 3. Open Anvil. If macOS says it "cannot verify" Anvil, go to
@@ -139,7 +140,16 @@ Please leave out personal details such as account names or email addresses.
   release lists the DMG's SHA-256, so you can check your download.
 - **No warranty.** Anvil is provided "as is"; see [LICENSE.txt](LICENSE.txt).
 
-## What's new in 0.59.0
+## What's new in 0.59.1
+
+- **Your saves come back when a game does.** Delete a game and its saves are exported, and
+  each export is now kept twice: in Documents › Anvil Saves and inside Anvil. When you download
+  the game again, Anvil lists every export and any old saves it finds, newest first, with when
+  each was exported and when the game last saved. It puts back the ones you pick, and exports
+  what the game had first, so nothing is lost either way. **Choose Saves from Before** on a
+  game's page does it any time.
+
+## In 0.59.0
 
 - **Anvil Learn.** Anvil learns how each game runs on your Mac from every session. Every
   few seconds of play is kept with how heavy the scene was, so it can tell what a setting
@@ -227,6 +237,7 @@ version number at the bottom of the sidebar.
 
 Older versions stay available in case a new one doesn't suit a game:
 
+- [Anvil 0.59.0 (legacy)](https://github.com/yhkyp2ygpv-collab/Mac-Game-Launcher/releases/tag/v0.59.0)
 - [Anvil 0.58.2 (legacy)](https://github.com/yhkyp2ygpv-collab/Mac-Game-Launcher/releases/tag/v0.58.2)
 - [Anvil 0.58.1 (legacy)](https://github.com/yhkyp2ygpv-collab/Mac-Game-Launcher/releases/tag/v0.58.1)
 - [Anvil 0.58.0 (legacy)](https://github.com/yhkyp2ygpv-collab/Mac-Game-Launcher/releases/tag/v0.58.0)

@@ -6,7 +6,7 @@ import Foundation
 /// always say exactly what it is — the point is to be able to tell whether the app
 /// in front of you includes a given fix.
 enum AnvilVersion {
-    static let current = "0.59.0"
+    static let current = "0.59.1"
     static let build = buildStamp
 
     /// Baked at compile time from the source's own modification date, so two builds
@@ -34,6 +34,21 @@ enum AnvilVersion {
     }
 
     static let releases: [Release] = [
+        Release(
+            version: "0.59.1",
+            date: "21 October 2026",
+            headline: "Saves from before come back: when a game is downloaded again, Anvil lists its exports and old saves by date and puts back the ones you choose.",
+            fixed: [
+                "LEGO Star Wars was deleted on 17 October, its saves exported to Documents › Anvil Saves first. Downloaded again on 19 October it went into a different Windows setup (\"Epic Games\" rather than \"Star Wars\"), started with no saves, and nothing pointed to the export: the game started over. Now, when a game's saves began after an export of it was made — it was downloaded again, or moved to another setup — Anvil asks which saves to play on, before its next start or as soon as Anvil opens: each export, by when it was made and when the game last saved in it, and the saves left in a Windows setup it was in before, newest first, or what it has now. Asked once for each newest export; Choose Saves from Before on its page asks again any time.",
+                "Putting saves back never loses any: what the game has is exported first (\"… before restoring.zip\", one of the choices from then on), and what's in the way is moved aside, not overwritten — and a folder moved aside is no longer taken for the game's own saves.",
+                "Save Backups' Put Back restores saves into the Windows setup they were backed up from. On 19 October that put LEGO Star Wars' backup of 1:29 PM on 17 October back into its old setup, not the one it had been downloaded into, and older than the export. The new choice puts saves where the game is now.",
+            ],
+            added: [
+                "Every save export is kept twice: in Documents › Anvil Saves and in Anvil's own folder (Save Exports), each a copy of the other — the exports already in Documents were copied into Anvil once.",
+            ],
+            known: [
+                "Deleting the export from Documents › Anvil Saves leaves Anvil's copy; deleting both removes it.",
+            ]),
         Release(
             version: "0.59.0",
             date: "17 October 2026",

@@ -90,7 +90,9 @@ enum GameRemoval {
             }
         }
         library.removeGame(game)
-        let kept = zip.map { "its saves exported to \($0.path)" } ?? "no saves found to keep"
+        // Kept twice: in Documents and in Anvil's own Save Exports (SaveVault), for when it's downloaded again.
+        if let zip { SaveVault.keepCopy(of: zip) }
+        let kept = zip.map { "its saves exported to \($0.path) and a copy kept in Anvil" } ?? "no saves found to keep"
         AnvilLog.write("delete: \(game.title) — \(kept); \(done)")
         return .done("\(game.title): \(kept); \(done).", zip)
     }

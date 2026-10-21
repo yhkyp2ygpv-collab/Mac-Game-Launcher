@@ -21,6 +21,8 @@ enum Housekeeping {
         restoreOnePassBeforeFirstFrameOnce()
         // Sessions Learn missed — Anvil closed while a game ran — learned from game.log.
         Task { await LearnStore.shared.catchUp() }
+        // Exports kept in both places, and any game back with saves from before it asked about (SaveVault).
+        SaveChoice.shared.offerAtStart()
         realFramesOnce()
         trueShapeOnce()
         offlineHistoryOnce()
