@@ -401,6 +401,8 @@ struct GameDetailView: View {
 
         LookCheckSection(gameID: gameID)
 
+        GameUpscalerSection(gameID: gameID)
+
         SwiftUI.Section("Upscaling") {
             UpscalerEditor(config: Binding(
                 get: {

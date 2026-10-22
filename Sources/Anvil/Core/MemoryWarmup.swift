@@ -54,10 +54,14 @@ enum MemoryWarmup {
     }
 
     /// What the Mac has spare for it, in bytes: half of what's free beyond 4 GB, at most 8 GB — half that on
-    /// battery. Zero when there's little to spare.
-    static func budget(availableBytes: Int64, onBattery: Bool) -> Int64 {
+    /// battery — and, where the game's last session says how much it takes itself, only what's free beyond that and
+    /// 2 GB more. Zero when there's little to spare. Hogwarts Legacy at Ultra took up to 21 GB of a 24 GB Mac on 22
+    /// October with 11 GB free at its start; 3.5 GB read ahead was pushed out again as it loaded, and the Mac swapped
+    /// 2 GB during play.
+    static func budget(availableBytes: Int64, onBattery: Bool, gameNeeds: Int64? = nil) -> Int64 {
         let gb: Int64 = 1 << 30
         var b = min(max(0, availableBytes - 4 * gb) / 2, 8 * gb)
+        if let gameNeeds { b = min(b, max(0, availableBytes - gameNeeds - 2 * gb) / 2) }
         if onBattery { b /= 2 }
         return b >= 256 << 20 ? b : 0
     }
@@ -112,9 +116,16 @@ enum MemoryWarmup {
                 return
             }
             let files = parse(text)
-            let budget = budget(availableBytes: availableBytes(), onBattery: onBattery)
+            let free = availableBytes()
+            let needs = (try? String(contentsOf: Launcher.gameLogURL, encoding: .utf8)).flatMap { FrameLog.peakMemory(of: title, text: $0) }
+            let budget = budget(availableBytes: free, onBattery: onBattery, gameNeeds: needs)
             guard budget > 0 else {
-                AnvilLog.write("  memory warm-up: \(title) — skipped, the Mac has little memory to spare right now")
+                if let needs, needs + 2 * (1 << 30) > free {
+                    AnvilLog.write(String(format: "  memory warm-up: %@ — skipped: it took up to %.1f GB itself last time, and %.1f GB is free — data read ahead would only be pushed out again as it loads",
+                                          title, Double(needs) / 1_073_741_824, Double(free) / 1_073_741_824))
+                } else {
+                    AnvilLog.write("  memory warm-up: \(title) — skipped, the Mac has little memory to spare right now")
+                }
                 return
             }
             let pieces = plan(files, budget: budget) { path, size in

@@ -6,7 +6,7 @@ import Foundation
 /// always say exactly what it is — the point is to be able to tell whether the app
 /// in front of you includes a given fix.
 enum AnvilVersion {
-    static let current = "0.61.0"
+    static let current = "0.62.0"
     static let build = buildStamp
 
     /// Baked at compile time from the source's own modification date, so two builds
@@ -34,6 +34,35 @@ enum AnvilVersion {
     }
 
     static let releases: [Release] = [
+        Release(
+            version: "0.62.0",
+            date: "22 October 2026",
+            headline: "A game's own AI upscalers chosen in Anvil — Hogwarts Legacy's DLSS, run by Apple's MetalFX, or Intel's XeSS — and nothing upscaled, sharpened or generated twice over, which is what made its edges grainy.",
+            fixed: [
+                "Hogwarts Legacy's edges were grainy on 21 October, from five things on top of each other. It drew 756 × 491, its own FSR 3 at Performance for a 1512 × 982 window. Its sharpening was at the top of its slider, and Anvil's FSR sharpened the result again at full strength. Anvil sampled its textures a mip level sharper on top of what its FSR had already asked for. And its own frame generation was on as well as Anvil's. Anvil now sets its upscaler and quality, its frame generation off while Anvil's is on, its sharpening back at its default, and its film grain off — in its settings file and in the copy of its options it keeps in its saves (SavedUserOptions.sav), which it applies over the file once it has started. Over a game's own upscaler, Anvil adds no texture sharpening, sharpens at half strength at most, and blends at most 3 frames with FSR 3.",
+                "Freezes of 1–2.6 seconds with Smooth Motion on: its presenter, at the Mac's lowest priority, went without the CPU while Hogwarts Legacy's own threads, the Mac swapping and the heat took it — and the game, which waits for its frames to reach the screen, stopped with it. Eight times in two hours on 22 October. The presenter now runs at full priority whenever it falls behind, and if it still stalls, the game's own frames are back within 0.4 s instead of at Anvil's next check up to ten seconds later.",
+                "Each time Smooth Motion stopped, Anvil read its whole run as \"no frames\" — \"back after 1035 s\" in the middle of play — and lifted the pause it had just put on Smooth Motion after a stall or after it slowed the game. It started again seconds later and stalled again: twice within ten seconds at 7:34 PM on 22 October. Frames Smooth Motion shows count now.",
+                "The memory warm-up read up to 3.5 GB ahead for Hogwarts Legacy with 11 GB free, for a game that takes up to 21 GB itself at Ultra on a 24 GB Mac: it was only pushed out again, and the Mac swapped 2 GB during play. The warm-up now leaves room for what the game took last time, and skips itself when that doesn't fit. When the Mac swaps, the Doctor says how much the game itself took, and what frees the most.",
+                "Smooth Motion went on and off every 4–6 seconds in a game held to 60 fps of its own (Hogwarts Legacy). With frames made ahead of the game's, it measured 60–65, and 62 was the edge both ways. It now leaves only above 74 on a 120 Hz display.",
+                "Hogwarts Legacy closed at its pause menu after 16 minutes, and Autopilot took FSR's one pass from it. Its own crash record says otherwise: the game asked Windows for its on-screen keyboard (Windows.UI.ViewManagement.Core.CoreInputView), which Wine doesn't have, and stopped on the error. Anvil now reads C++ and Windows-component exceptions in a crash record and names them. FSR's one pass is back for it.",
+                "Hogwarts Legacy's saves weren't found as its own: they're under its Unreal project's name, Phoenix. The export Anvil made before it was deleted on 18 October held only an empty folder (74 bytes), and its saves survived only because its Windows setup did. They're found and exported now.",
+                "Putting a game's saves back could put back another game's too. LEGO Star Wars' safety copy of 21 October, made while it was alone in its setup, holds Hogwarts Legacy's saves of 17 October. A restore now puts back only the game's own folders, and never one belonging to another game in the setup.",
+                "Two restores in the same second failed (\"couldn't be moved … because an item with the same name already exists\"). The folder set aside now gets a name of its own.",
+                "The upscaling modes \"FSR 3 temporal — only if the game already has FSR\" and \"… only if it has DLSS or XeSS\" needed a library of AMD's in the game's folder and did nothing without one. Hogwarts Legacy ran FSR 1 under the second, and its Force injection copied two FidelityFX SDK libraries beside a launcher that never loads them. Both modes are retired for FSR 3 for every game, and what they put into a game's folder is taken out at first start.",
+            ],
+            added: [
+                "The Game's Own Upscaler, on the Performance tab of a game whose settings Anvil knows (Hogwarts Legacy first). Choose DLSS — whose own network needs NVIDIA's hardware, so Apple's D3DMetal hands its inputs to MetalFX, Apple's temporal upscaler — or Intel's XeSS, the game's AMD FSR 3, or what's set in the game. Automatic picks DLSS where it runs here, then XeSS. Anvil writes the choice into the game's settings before it starts.",
+                "Quality on Automatic: how much of its window the game draws before the upscaler fills in the rest. It starts at Balanced on a base M4, Quality on Pro chips and up. After a session it moves a step sharper where the game made well over what it needs even in its heaviest places, and a step quicker where the GPU held it under.",
+                "Clean picture: the game's film grain and colour fringing off — the upscalers turn grain into specks that crawl. On by default, and switching it off puts back what the game had.",
+                "Never two frame generators: with its own on in its menu, Anvil's frame generation and Smooth Motion stay off for that start, and the log says why.",
+                "After a session, a choice the game didn't keep is told apart: DLSS when D3DMetal didn't show the game an NVIDIA GPU (XeSS from the next start), or something you changed in the game's own menu, which then stays as you set it until you choose again.",
+            ],
+            known: [
+                "Not yet seen working in a session of Hogwarts Legacy itself. Its first session with this build's first version (22 October) set its settings file alone, and the game drew FSR 3 Performance all along from its saved options; with both set, it's tested on copies of the two. Its next start says in the log what it set (lines starting \"Hogwarts Legacy: its own upscaler\"), and the frame log shows the size it draws at.",
+                "XeSS takes more of an Apple GPU's time each frame than DLSS through MetalFX does; how much on this Mac isn't measured yet. Automatic's quality steps take it into account from the session's own frame rate.",
+                "Hogwarts Legacy can still close when it asks Windows for its on-screen keyboard: Wine has no such keyboard. What in the game asks for it isn't known; Anvil now names it instead of blaming graphics.",
+                "Only Hogwarts Legacy's settings file is known so far. In another game with DLSS or XeSS, choose it in its own menu, and switch Anvil's frame generation off if the game's own is on.",
+            ]),
         Release(
             version: "0.61.0",
             date: "21 October 2026",

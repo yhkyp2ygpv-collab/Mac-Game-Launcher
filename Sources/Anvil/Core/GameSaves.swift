@@ -60,6 +60,55 @@ enum GameSaves {
         return found >= min(2, telling.count)
     }
 
+    /// An Unreal Engine game's project name — the folder its program is in, <Project>/Binaries/Win64 — which names
+    /// its folder under AppData/Local: Hogwarts Legacy's saves are in "Phoenix/Saved/SaveGames". Nil for any other
+    /// game. Until 0.62 that folder wasn't taken for the game's: on 18 October its export, before it was deleted,
+    /// held only an empty "Hogwarts Legacy" folder (74 bytes), and its saves stayed only because its Windows setup did.
+    nonisolated static func unrealProject(of game: Game) -> String? {
+        let comps = GameAnalysis.drawingProgram(for: game.executableURL).pathComponents
+        guard let bin = comps.lastIndex(of: "Binaries"), bin > 0 else { return nil }
+        let project = comps[bin - 1]
+        return project == "Engine" ? nil : project
+    }
+
+    /// Whether a save folder's name is the game's, by `belongs` or as its Unreal project.
+    nonisolated static func isGames(_ folder: String, _ game: Game, project: String?) -> Bool {
+        if let project, folder.caseInsensitiveCompare(project) == .orderedSame { return true }
+        return belongs(folder, title: game.title, executable: game.executableURL.lastPathComponent)
+    }
+
+    /// Whether a place in an export or a setup is `game`'s, by any folder on its path below the profile's own
+    /// ("AppData/Local/Phoenix", "Documents/Cat Quest II"), or as its Steam cloud folder.
+    nonisolated static func isGames(_ place: Place, _ game: Game) -> Bool {
+        if place.underDriveC { return game.steamAppID.map { place.relativePath.hasSuffix("/" + $0) } ?? false }
+        let project = unrealProject(of: game)
+        return place.relativePath.split(separator: "/").dropFirst().contains { isGames(String($0), game, project: project) }
+    }
+
+    /// Of an export's places, the ones to put back for `game` into a setup it shares with `others`: its own, where it
+    /// has any; otherwise every one no other game there owns. An export made while a game was alone in its setup holds
+    /// every save folder there — LEGO Star Wars' "before restoring" copy of 21 October held Hogwarts Legacy's, left
+    /// in the setup after it was deleted — and putting that back would take another game back to that day.
+    nonisolated static func toRestore(_ places: [Place], for game: Game, others: [Game]) -> [Place] {
+        let own = places.filter { isGames($0, game) }
+        if !own.isEmpty { return own }
+        return places.filter { place in !others.contains { isGames(place, $0) } }
+    }
+
+    /// Where what's in the way goes, beside it: "….anvil-replaced-<time>", and "-2", "-3"… after that when the same
+    /// second already has one. Two restores in one second used to collide on the name (Cocoa error 516, 21 October).
+    nonisolated static func aside(for url: URL) -> URL {
+        let base = "\(url.lastPathComponent).anvil-replaced-\(Int(Date().timeIntervalSince1970))"
+        let folder = url.deletingLastPathComponent()
+        var candidate = folder.appendingPathComponent(base)
+        var n = 2
+        while FileManager.default.fileExists(atPath: candidate.path) || (try? FileManager.default.destinationOfSymbolicLink(atPath: candidate.path)) != nil {
+            candidate = folder.appendingPathComponent("\(base)-\(n)")
+            n += 1
+        }
+        return candidate
+    }
+
     /// The Windows user's profile folder in a container ("drive_c/users/crossover").
     nonisolated static func profile(in container: Container) -> URL? { profile(driveC: container.driveC) }
 
@@ -86,6 +135,7 @@ enum GameSaves {
         let fm = FileManager.default
         var out: [Place] = []
         var all: [Place] = []
+        let project = unrealProject(of: game)
         if let profile = profile(driveC: driveCURL) {
             let driveC = driveCURL.resolvingSymlinksInPath().path + "/"
             for root in SaveTransfer.saveRoots {
@@ -115,13 +165,13 @@ enum GameSaves {
                     // game's: the game's own folder is taken where there is one.
                     let children = ((try? fm.contentsOfDirectory(at: entry, includingPropertiesForKeys: nil)) ?? [])
                         .filter { $0.hasDirectoryPath && !SaveTransfer.isNoise($0.lastPathComponent) }
-                    if belongs(entry.lastPathComponent, title: game.title, executable: game.executableURL.lastPathComponent) {
+                    if isGames(entry.lastPathComponent, game, project: project) {
                         let size = SaveTransfer.directorySize(entry)
                         if size > 0 { out.append(Place(relativePath: rel, bytes: size)) }
                         continue
                     }
                     var matchedChild = false
-                    for child in children where belongs(child.lastPathComponent, title: game.title, executable: game.executableURL.lastPathComponent) {
+                    for child in children where isGames(child.lastPathComponent, game, project: project) {
                         let size = SaveTransfer.directorySize(child)
                         if size > 0 { out.append(Place(relativePath: rel + "/" + child.lastPathComponent, bytes: size)); matchedChild = true }
                     }
@@ -205,27 +255,30 @@ enum GameSaves {
     }
 
     /// An export's saves back into a container, each at its own place. What is there already is
-    /// moved aside beside it ("….anvil-replaced-<time>"), never overwritten.
+    /// moved aside beside it ("….anvil-replaced-<time>"), never overwritten. `keep` chooses which of the export's
+    /// places go back (`toRestore`); the manifest returned lists the ones that did.
     @discardableResult
-    nonisolated static func restore(from zip: URL, into container: Container) throws -> Manifest {
+    nonisolated static func restore(from zip: URL, into container: Container,
+                                    keep: ([Place]) -> [Place] = { $0 }) throws -> Manifest {
         let fm = FileManager.default
-        let manifest = try manifest(of: zip)
+        var manifest = try manifest(of: zip)
         let stage = staging.appendingPathComponent("restore-\(UUID().uuidString)", isDirectory: true)
         defer { try? fm.removeItem(at: stage) }
         try run("/usr/bin/ditto", ["-x", "-k", zip.path, stage.path])
-        for place in manifest.places {
+        var restored: [Place] = []
+        for place in keep(manifest.places) {
             let from = stage.appendingPathComponent(place.underDriveC ? "drive_c" : "profile").appendingPathComponent(place.relativePath)
             // Nothing outside the place it names: no "..", no absolute path.
             guard fm.fileExists(atPath: from.path), !place.relativePath.contains(".."), !place.relativePath.hasPrefix("/"),
                   let to = source(of: place, in: container) else { continue }
             try fm.createDirectory(at: to.deletingLastPathComponent(), withIntermediateDirectories: true)
             if fm.fileExists(atPath: to.path) {
-                let aside = to.deletingLastPathComponent()
-                    .appendingPathComponent("\(to.lastPathComponent).anvil-replaced-\(Int(Date().timeIntervalSince1970))")
-                try fm.moveItem(at: to, to: aside)
+                try fm.moveItem(at: to, to: aside(for: to))
             }
             try run("/bin/cp", ["-Rc", from.path, to.path])
+            restored.append(place)
         }
+        manifest.places = restored
         return manifest
     }
 
@@ -250,9 +303,7 @@ enum GameSaves {
                   from.resolvingSymlinksInPath().path != to.resolvingSymlinksInPath().path else { continue }
             try fm.createDirectory(at: to.deletingLastPathComponent(), withIntermediateDirectories: true)
             if fm.fileExists(atPath: to.path) {
-                let aside = to.deletingLastPathComponent()
-                    .appendingPathComponent("\(to.lastPathComponent).anvil-replaced-\(Int(Date().timeIntervalSince1970))")
-                try fm.moveItem(at: to, to: aside)
+                try fm.moveItem(at: to, to: aside(for: to))
             }
             try run("/bin/cp", ["-Rc", from.path, to.path])
             n += 1

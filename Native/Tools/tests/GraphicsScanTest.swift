@@ -283,7 +283,8 @@ import Foundation
               "Upscaling scan with Anvil's FidelityFX, XeSS and DLSS names injected beside it, five in a row: still nothing (\(noneInjected.map(caps)))")
         check(launches(.fsr3Native, noneInjected[0]) == .fsr3Every && launches(.fsr3Translated, noneInjected[0]) == .fsr3Every,
               "…so a mode that needs the game's FSR, DLSS or XeSS launches as FSR 3 for every game, as the page says it will")
-        check(launches(.fsr3Native, noneInjected[0], forced: true) == .fsr3Native, "…unless the injection is forced: then the mode chosen runs")
+        check(launches(.fsr3Native, noneInjected[0], forced: true) == .fsr3Every,
+              "…forced or not, since 0.62: the retired modes run as FSR 3 for every game")
         try? upscalers.removeInjection(fromGameAt: none.path)
         check(upscalers.scan(gameAt: none.path) == noneBare, "taken out again: the same answer")
         // A game's own FidelityFX 2.2.1 with Anvil's injected over it: the game's, set aside, is told.
@@ -295,8 +296,8 @@ import Foundation
         let ownInjected = upscalers.scan(gameAt: ownFFX.path)
         check(ownBare.hasFSR && ownBare.fsrVersionFound == "2.2.1" && ownInjected == ownBare,
               "its own FSR 2.2.1 under Anvil's 3.1.5: FSR 2.2.1 told, no DLSS or XeSS (\(caps(ownBare)) → \(caps(ownInjected)))")
-        check(launches(.fsr3Native, ownInjected) == .fsr3Native && launches(.fsr3Translated, ownInjected) == .fsr3Every,
-              "…so the game's-own-FSR mode runs, and the DLSS/XeSS one doesn't")
+        check(launches(.fsr3Native, ownInjected) == .fsr3Every && launches(.fsr3Translated, ownInjected) == .fsr3Every,
+              "…and since 0.62 neither retired mode runs as itself: a game's own FSR is chosen on its page (GameUpscaler)")
         // Shipping AMD's library byte for byte as the payload has it, with no injection: the game's.
         let sameBytes = root.appendingPathComponent("SameBytes/samebytes.exe")
         pe(sameBytes, version: [1, 0, 0, 0], extra: ["d3d12.dll", "D3D12CreateDevice"])

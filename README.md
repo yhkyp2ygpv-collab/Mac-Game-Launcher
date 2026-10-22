@@ -7,7 +7,7 @@ Anvil fixes that. It installs and runs Windows games on Apple silicon Macs, then
 one while you play: sharper upscaling, extra frames in heavy scenes, even frame pacing,
 working controllers and surround sound.
 
-### [⬇ Download Anvil 0.61.0](https://github.com/yhkyp2ygpv-collab/Mac-Game-Launcher/releases/latest)
+### [⬇ Download Anvil 0.62.0](https://github.com/yhkyp2ygpv-collab/Mac-Game-Launcher/releases/latest)
 
 Free · Apple silicon (M1 or later) · macOS 14 Sonoma or newer · **Open source**
 
@@ -91,7 +91,7 @@ feedback form below.</sub>
 
 ## Install
 
-1. Download `Anvil-0.61.0.dmg` from
+1. Download `Anvil-0.62.0.dmg` from
    [Releases](https://github.com/yhkyp2ygpv-collab/Mac-Game-Launcher/releases/latest).
 2. Open it and drag **Anvil** into **Applications**.
 3. Open Anvil. If macOS says it "cannot verify" Anvil, go to
@@ -141,7 +141,32 @@ Please leave out personal details such as account names or email addresses.
   release lists the DMG's SHA-256, so you can check your download.
 - **No warranty.** Anvil is provided "as is"; see [LICENSE.txt](LICENSE.txt).
 
-## What's new in 0.61.0
+## What's new in 0.62.0
+
+- **A game's own AI upscalers, chosen in Anvil.** For Hogwarts Legacy, pick **DLSS** or **Intel XeSS** on its
+  Performance tab. DLSS's own network needs NVIDIA hardware, so Apple's D3DMetal runs it as **MetalFX**, Apple's
+  temporal upscaler. XeSS is Intel's AI upscaler and runs on any GPU. **Automatic** picks DLSS, then XeSS, and
+  writes the choice into the game's own settings before it starts.
+- **Quality that fits your Mac.** Automatic starts at Balanced on a base M4. After each session it moves a step
+  sharper if the game had room to spare, or a step faster if the GPU held it back.
+- **No more grainy edges from doing things twice.** Anvil no longer:
+  - sharpens on top of the game's own sharpening,
+  - sharpens textures on top of the game's own upscaler,
+  - runs its frame generation alongside the game's.
+
+  Film grain and colour fringing are off by default ("Clean picture").
+- **Fixed:**
+  - Freezes of 1–2.6 seconds with Smooth Motion on. Its presenter now gets full priority when it falls behind, and
+    the game gets its own frames back within 0.4 s if it ever stalls.
+  - A bug that let Smooth Motion restart seconds after a freeze.
+  - Hitches from memory: the warm-up leaves room for what a big game takes (Hogwarts at Ultra uses up to 21 GB).
+  - Smooth Motion switching on and off every few seconds in a game held to 60 fps.
+  - A crash in Hogwarts Legacy blamed on FSR. It was the game asking Windows for its on-screen keyboard, which Wine
+    doesn't have.
+  - Hogwarts Legacy's saves (under "Phoenix") are now found and exported.
+  - Restoring one game's saves no longer puts back another game's.
+
+## In 0.61.0
 
 - **Download the DLC you own.** Each Epic game's page lists your DLC first — Installed, or a
   **Download** button with its progress — and folds away the DLC you don't own. A **Download
@@ -264,6 +289,7 @@ version number at the bottom of the sidebar.
 
 Older versions stay available in case a new one doesn't suit a game:
 
+- [Anvil 0.61.0 (legacy)](https://github.com/yhkyp2ygpv-collab/Mac-Game-Launcher/releases/tag/v0.61.0)
 - [Anvil 0.60.0 (legacy)](https://github.com/yhkyp2ygpv-collab/Mac-Game-Launcher/releases/tag/v0.60.0)
 - [Anvil 0.59.1 (legacy)](https://github.com/yhkyp2ygpv-collab/Mac-Game-Launcher/releases/tag/v0.59.1)
 - [Anvil 0.59.0 (legacy)](https://github.com/yhkyp2ygpv-collab/Mac-Game-Launcher/releases/tag/v0.59.0)

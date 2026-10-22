@@ -337,8 +337,15 @@ enum GameDoctor {
         let atLaunch = memory(in: log, marker: "memory at launch: ")
         let atEnd = memory(in: log, marker: "memory after ")
         if let a = atLaunch, let b = atEnd, let s0 = a.swap, let s1 = b.swap, s1 - s0 >= 256 {
+            // The game's own share, from libanvil's statistics: at a game's highest settings it can need most of the
+            // Mac by itself — Hogwarts Legacy at Ultra took up to 21 GB of 24 on 22 October.
+            let peak = e.windows.compactMap(\.memoryMB).max() ?? 0
+            let own = peak > 0 && a.total > 0
+                ? String(format: " The game itself took up to %.1f GB of this Mac's %.0f GB.", peak / 1024, Double(a.total) / 1024) : ""
+            let heavy = peak > 0 && a.total > 0 && peak >= 0.7 * Double(a.total)
+                ? " That's most of it: Texture Quality a step lower in the game's own settings frees the most memory and costs no frame rate — the swapping it saves costs hitches." : ""
             add("swap", .advice, "macOS moved memory to the SSD during play",
-                "Swap grew by \(s1 - s0) MB while the game ran — other apps were using memory it needed. Closing browsers and other large apps before playing keeps everything in RAM.")
+                "Swap grew by \(s1 - s0) MB while the game ran — other apps were using memory it needed.\(own)\(heavy) Closing browsers and other large apps before playing keeps everything in RAM.")
         } else if let a = atLaunch, a.available < 3000 {
             add("low-memory", .advice, "Little memory was free at launch",
                 "Only \(a.available) MB of \(a.total) MB was available. Closing other apps first keeps the game from being pushed to the SSD.")

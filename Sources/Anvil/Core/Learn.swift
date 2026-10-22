@@ -266,6 +266,11 @@ enum Learn {
     /// An Unreal game's [ScalabilityGroups] (sg.ShadowQuality=3…), from the GameUserSettings.ini its program
     /// writes under AppData/Local/<its name>/Saved/Config. Read only: the player's own choices, learned from.
     static func unrealSettings(for game: Game, in container: Container) -> [String: Int] {
+        // A game that keeps its options in a save too applies those over its ini once it has started (GameUpscaler).
+        if let profile = GameUpscaler.profile(for: game),
+           let save = GameUpscaler.optionsSaves(for: game, in: container, profile: profile).lazy.compactMap({ GameUpscaler.OptionsSave($0) }).first {
+            return scalability(in: save.text)
+        }
         guard let file = unrealSettingsFile(for: game, in: container),
               let text = try? String(contentsOf: file, encoding: .utf8) else { return [:] }
         return scalability(in: text)

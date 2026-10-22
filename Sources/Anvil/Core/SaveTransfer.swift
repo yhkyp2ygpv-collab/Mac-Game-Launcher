@@ -227,10 +227,7 @@ final class SaveTransfer: ObservableObject {
         // Only now displace whatever is already there, keeping it rather than
         // deleting it — a save is the one thing in a prefix that cannot be rebuilt.
         if fm.fileExists(atPath: destination.path) {
-            let stamp = Int(Date().timeIntervalSince1970)
-            let aside = destination.deletingLastPathComponent()
-                .appendingPathComponent("\(destination.lastPathComponent).anvil-replaced-\(stamp)")
-            try fm.moveItem(at: destination, to: aside)
+            try fm.moveItem(at: destination, to: GameSaves.aside(for: destination))
         }
         do {
             try fm.moveItem(at: staging, to: destination)

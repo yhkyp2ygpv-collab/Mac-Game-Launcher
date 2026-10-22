@@ -298,6 +298,8 @@ final class Launcher: ObservableObject {
 
         // --- Upscaling ---
         let upscaler = game.upscalerOverride ?? container.upscaler
+        // The game's own upscaler and frame generation, as its settings file has them for this start (GameUpscaler).
+        let ownUpscaler = GameUpscaler.inGame(game, in: container)
         // Its DLL overrides join the graphics backend's rather than replacing them: until 0.58.2 a game
         // FSR 3 reached through its own upscaler (Hogwarts Legacy) lost D3DMetal's "d3d11,dxgi…=n,b".
         var upscalerEnv = UpscalerManager.shared.environment(for: upscaler, container: container)
@@ -360,6 +362,14 @@ final class Launcher: ObservableObject {
                 env["ANVIL_METAL_PACK"] = resources.appendingPathComponent("AnvilShaders.pack").path
                 env["ANVIL_HOOK_ENABLED"] = "1"
                 env["ANVIL_SHARPNESS"] = String(format: "%.2f", upscaler.sharpness)
+                // Over a game's own temporal upscaler, half strength at most: DLSS, XeSS and FSR hand over a picture
+                // already reconstructed, and RCAS at full strength on top of it is what made Hogwarts Legacy's edges
+                // grainy (21 October).
+                if let own = ownUpscaler, own.temporal, upscaler.sharpness > 0.5 {
+                    env["ANVIL_SHARPNESS"] = "0.50"
+                    AnvilLog.write(String(format: "  sharpening: %.0f%% over %@'s own %@ — half the %.0f%% set, so the picture isn't sharpened twice over",
+                                          50.0, game.title, own.brand?.short ?? "upscaler", upscaler.sharpness * 100))
+                }
                 // Graphics Prep's work for this game: Anvil's pipelines ready-made for this Mac's
                 // GPU, and FSR in one pass where that was measured quicker in its colour format.
                 if let prep = GraphicsPrep.usable(gameID: game.id) {
@@ -404,6 +414,9 @@ final class Launcher: ObservableObject {
                     if use && GameTuning.smoothsItsOwnEdges(game, in: container) {
                         env["ANVIL_FSR3_FRAMES"] = "3"
                         AnvilLog.write("  FSR 3: \(game.title) smooths its own edges over time (its temporal AA is on), so FSR 3 blends at most 3 frames on top")
+                    } else if use, let own = ownUpscaler, own.temporal {
+                        env["ANVIL_FSR3_FRAMES"] = "3"
+                        AnvilLog.write("  FSR 3: \(game.title) upscales with \(own.brand?.short ?? "its own upscaler"), which blends its frames over time already, so FSR 3 blends at most 3 frames on top")
                     }
                     switch verdict.use {
                     case true?: AnvilLog.write("  FSR 3: on — Graphics Prep found it better than FSR 1 at \(game.title)'s sizes\(native ? ", at the display's own size too" : "")")
@@ -415,7 +428,13 @@ final class Launcher: ObservableObject {
                 // level sharper for every halving (log2 of drawn ÷ shown), with 8× anisotropic
                 // filtering — on the game's filtered, mipmapped textures (anvil_gpuwork.mm).
                 let upscaling = env["ANVIL_OUTPUT"] == "1" && (GraphicsPrep.drawnRatio(gameID: game.id) ?? 0.5) < 0.9
-                if upscaling, upscaler.sharpTextures, let ratio = GraphicsPrep.drawnRatio(gameID: game.id), ratio < 0.9 {
+                if upscaling, upscaler.sharpTextures, let own = ownUpscaler, own.temporal {
+                    // The game's own upscaler sets its textures' sharpness for the size it upscales to; a mip level
+                    // more on top samples them finer than its frames can hold, and they shimmer (Hogwarts Legacy,
+                    // 21 October: −1 of Anvil's over its FSR 3's own).
+                    env["ANVIL_ANISOTROPY"] = "8"
+                    AnvilLog.write("  textures: 8× anisotropic filtering; their sharpness left to \(game.title)'s own \(own.brand?.short ?? "upscaler"), which sets it for the size it upscales to")
+                } else if upscaling, upscaler.sharpTextures, let ratio = GraphicsPrep.drawnRatio(gameID: game.id), ratio < 0.9 {
                     let bias = max(-2.0, log2(ratio))
                     env["ANVIL_LOD_BIAS"] = String(format: "%.2f", bias)
                     env["ANVIL_ANISOTROPY"] = "8"
@@ -443,9 +462,14 @@ final class Launcher: ObservableObject {
                 // game.log since 0.41): until 0.47 that switched frame generation off for every
                 // session Auto-Tune was still deciding — all of LEGO Star Wars' on 12 October.
                 let measuring = Tuner.shared.state(for: game)?.mode == .quickTest
-                let generate = upscaler.frameGeneration && !measuring
+                // Never on top of the game's own: frames made from frames it made itself warp. Hogwarts Legacy had
+                // AMD's frame generation on in its menu and Anvil's as well on 21 October.
+                let gamesOwnFrames = ownUpscaler?.frameGen
+                let generate = upscaler.frameGeneration && !measuring && gamesOwnFrames == nil
                 if upscaler.frameGeneration && measuring {
                     AnvilLog.write("  frame generation: off for Auto-Tune's quick test of \(game.title)'s own frames; on again after it")
+                } else if upscaler.frameGeneration, let theirs = gamesOwnFrames {
+                    AnvilLog.write("  frame generation: \(game.title)'s own (\(theirs)) is on in its settings, so Anvil's and Smooth Motion are off for this start — not one on top of the other")
                 }
                 env["ANVIL_FRAME_GEN"] = generate ? "1" : "0"
                 env["ANVIL_SMOOTH_MOTION"] = generate && upscaler.smoothMotion ? "1" : "0"
@@ -1096,6 +1120,20 @@ final class Launcher: ObservableObject {
                 AnvilLog.write("  DLSS through MetalFX: ready — DLSS chosen in the game runs as Apple's MetalFX, from the game's own motion vectors")
             case .failure(let error):
                 AnvilLog.write("  DLSS through MetalFX: not set up — \(error.localizedDescription)")
+            }
+        }
+        // The game's own upscaler, for a game whose settings Anvil knows (GameUpscaler): DLSS run by MetalFX or Intel's
+        // XeSS, at a quality fitted to this Mac, and nothing done twice. After DLSS's pieces, which decide if it can run.
+        do {
+            let up = game.upscalerOverride ?? container.upscaler
+            let dlssReady = dlssWanted && DLSSThroughMetalFX.ready(container: container, runtime: engine) != nil
+            let measuring = Tuner.shared.state(for: game)?.mode == .quickTest
+            let ours = Self.interceptorWanted(game: game, container: container)
+            for line in GameUpscaler.prepare(game, in: container, dlssReady: dlssReady,
+                                             anvilFrameGen: ours && up.frameGeneration && !measuring,
+                                             anvilToDisplay: ours && (up.fsrToDisplay || up.effectiveMode == .fsr3Every),
+                                             tier: DeviceProfile.current?.tier) {
+                AnvilLog.write("  \(game.title): " + line)
             }
         }
         // A Steam game: Steam running and signed in beside it first, as on Windows.
@@ -1760,6 +1798,15 @@ final class Launcher: ObservableObject {
                                           stats.averageFPS, GameDoctor.minutesText(stats.minutes), stats.shareAt80 * 100, stats.shareAt120 * 100, stats.lowestOnePercent))
                 }
             } }
+        }
+
+        // The game's own upscaler: what the session showed, and Automatic's quality for its next start (GameUpscaler).
+        if played >= 60, !wasTest, GameUpscaler.profile(for: session.game) != nil {
+            let game = session.game, container = session.container, log = Self.gameLogURL
+            Task.detached(priority: .utility) {
+                let play = FrameLog.lastSession(of: game.title, in: log).map { Gameplay.split($0.windows).play } ?? []
+                for line in GameUpscaler.afterSession(game, in: container, play: play) { AnvilLog.write("\(game.title): " + line) }
+            }
         }
 
         // Shut the prefix down once nothing is using it. A wineserver outlives the

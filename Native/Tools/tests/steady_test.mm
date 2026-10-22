@@ -591,6 +591,15 @@ int main() {
               "back to 30: Smooth Motion again within the window — it had run over a minute, so no wait added");
         run(18.0, 5.0);
         CHECK(!g_generating, "down to 18 fps: too far apart to make a frame between — off");
+        // A game held to 60 of its own, measured at 60–65 with frames made ahead of it: Hogwarts Legacy's Smooth Motion
+        // went on and off every 4–6 s on 21 October, with one edge (62.4 at 120 Hz) both ways.
+        fresh(); t = 1100.0; g_sessionStartAt = 0.0;
+        run(60.0, 5.0);
+        CHECK(g_generating && g_fill, "held to 60 of its own: Smooth Motion");
+        run(64.0, 40.0);
+        CHECK(g_generating && g_fill, "measured at 64 with frames made ahead: kept, not off and on again");
+        run(80.0, 5.0);
+        CHECK(!g_generating && !g_fill, "able to make 80 of its own for 5 s: off");
         fresh(); t = 900.0; g_sessionStartAt = 0.0; g_vrrState = 0; g_vrrReported = false;
         run(30.0, 20.0);
         CHECK(!g_fill, "a fixed-refresh display without FSR 3's pictures: no Smooth Motion (0.47's frames ahead need a panel that follows)");
@@ -624,6 +633,18 @@ int main() {
         g_midRate.store(9.0);
         run(9.0, 4.0, 2.0);
         CHECK(!g_mid.load(), "down to 9 by the presenter for 4 s: too far apart for a frame between — off");
+        // 0.62: the presenter stalled with the game's frames waiting — on the game's thread at once, not at Guardian's
+        // next look ten seconds on: the game's own frames, frames between paused, and not started again by them.
+        fresh(); t = 1250.0; g_midRate.store(40.0);
+        run(40.0, 2.0, 2.0);
+        CHECK(g_mid.load(), "set-up: frames between");
+        g_midShownAt.store(t - 1.0);
+        midStalled(t);
+        CHECK(!g_mid.load() && !g_generating && g_midPausedUntil >= t + 29.0 && g_midStalls >= 1,
+              "a presenter stalled: the game's own frames at once, frames between paused 30 s");
+        run(40.0, 10.0, 2.0);
+        CHECK(!g_mid.load(), "and not started again while paused");
+        g_midPausedUntil = 0.0; g_midPauseFor = 0.0;
         // Frames between costing the game its own: held for its drawable with the GPU idle.
         fresh(); t = 1300.0; g_gpuBusy.store(96);
         run(40.0, 2.0, 2.0);
@@ -795,6 +816,23 @@ int main() {
         g_midPauseFor = 600.0; g_midPausedUntil = t + 600.0;
         steadyOnPresent(t + 1.0 / 60.0);
         CHECK(g_midPausedUntil <= t + 0.1, "40 minutes asleep is a gap, though CACurrentMediaTime barely moved");
+        // 0.62: frames Smooth Motion shows count too. While it generates, Steady isn't asked at each present; until
+        // 0.62 that read its whole run as a gap when it stopped, which lifted Guardian's pause after a stall at once
+        // (Hogwarts Legacy, 22 October: "back after 1035 s with no frames", mid-play).
+        {
+            const bool genWas = g_generating, wantedWas = g_steadyWanted; const int vrrWas = g_vrrState;
+            const double periodWas = g_refreshPeriod;
+            g_steadyWanted = true; g_vrrState = 1; g_refreshPeriod = 1.0 / 120.0;
+            t += 1.0;
+            steadyAtPresent(t, true);
+            g_generating = true;
+            for (double end = t + 60.0; t < end; t += 1.0 / 40.0) steadyAtPresent(t, true);
+            g_generating = false;
+            g_midPauseFor = 30.0; g_midPausedUntil = t + 30.0;
+            steadyAtPresent(t, true);
+            CHECK(g_midPausedUntil > t + 29.0, "a minute of frames shown by Smooth Motion isn't a gap: its pause stays (%.0f s left)", g_midPausedUntil - t);
+            g_generating = genWas; g_steadyWanted = wantedWas; g_vrrState = vrrWas; g_refreshPeriod = periodWas;
+        }
         g_fsr3Eased = false; g_steadySettleSec = settleWas; g_steadySettled = settleWas <= 0.0;
         g_lastPresentCallAt = -1.0; g_lastPresentWall = -1.0;
     }

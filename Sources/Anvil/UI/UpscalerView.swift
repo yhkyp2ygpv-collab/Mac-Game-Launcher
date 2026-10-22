@@ -120,8 +120,12 @@ struct UpscalerEditor: View {
     private var modeSection: some View {
         Group {
             Picker("Upscaler", selection: $config.mode) {
-                ForEach(UpscalerMode.allCases) { mode in
+                ForEach(UpscalerMode.choices) { mode in
                     Text(mode.title).tag(mode)
+                }
+                // A retired mode still set shows as itself until another is chosen; it runs as FSR 3 for every game.
+                if !UpscalerMode.choices.contains(config.mode) {
+                    Text(config.mode.title + " — retired, runs as FSR 3").tag(config.mode)
                 }
             }
             .task(id: game?.executablePath) {
@@ -151,53 +155,32 @@ struct UpscalerEditor: View {
                       systemImage: "shield.lefthalf.filled")
                     .font(.caption).foregroundStyle(.orange)
                     .fixedSize(horizontal: false, vertical: true)
-            } else if let game, config.mode != .fsr3Every {
-                // Installing a payload into the game's folder is for AMD's own FSR 3 modes; Anvil's
-                // needs nothing in it.
-                Toggle("Force injection", isOn: $config.forceInjection)
-                Text("Installs the upscaler into \(game.title), whether or not it has any upscaler support. It only runs if the game loads it: through a proxy library the payload includes, or because the game already loads FidelityFX itself. A payload with no proxy, in a game with no FSR, is never loaded and changes nothing. Anvil copies only the upscaler's own libraries — never the support libraries an SDK bundles, which the game may ship its own copies of — and Remove puts back exactly what was there.")
-                    .font(.caption).foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                if config.forceInjection {
-                    if let manifest = upscalers.injectionManifest(forGameAt: game.executablePath) {
-                        HStack {
-                            Label("\(manifest.version) injected via \(manifest.vector.proxyFilename ?? "native load")",
-                                  systemImage: "checkmark.seal.fill")
-                                .font(.caption).foregroundStyle(.green)
-                            Spacer()
-                            Button("Remove") {
-                                do {
-                                    try upscalers.removeInjection(fromGameAt: game.executablePath)
-                                    installNote = "Removed. Original files restored."
-                                    installError = nil
-                                } catch {
-                                    installError = error.localizedDescription
-                                }
-                            }
-                            .controlSize(.small)
+            } else if let game, let manifest = upscalers.injectionManifest(forGameAt: game.executablePath) {
+                // Left by the retired modes' Force injection: libraries of AMD's in the game's folder. Anvil takes them
+                // out once at 0.62's first start; this is for any that couldn't be.
+                HStack {
+                    Label("\(manifest.copied.count) upscaler librar\(manifest.copied.count == 1 ? "y" : "ies") Anvil injected are still in \(game.title)'s folder",
+                          systemImage: "exclamationmark.circle")
+                        .font(.caption).foregroundStyle(.orange)
+                    Spacer()
+                    Button("Remove") {
+                        do {
+                            try upscalers.removeInjection(fromGameAt: game.executablePath)
+                            installNote = "Removed. Original files restored."
+                            installError = nil
+                        } catch {
+                            installError = error.localizedDescription
                         }
-                    } else if let payload = upscalers.latest {
-                        Button {
-                            inject(payload, game: game)
-                        } label: {
-                            Label("Inject \(payload.kind.title) \(payload.version) into \(game.title)",
-                                  systemImage: "arrow.down.circle")
-                        }
-                    } else {
-                        Label("Add an upscaler payload below first.", systemImage: "info.circle")
-                            .font(.caption).foregroundStyle(.secondary)
                     }
+                    .controlSize(.small)
                 }
             }
 
-            if config.mode.requiresGameSupport, let game, config.capability.scanned, !config.forceInjection {
-                if !config.capability.supports(config.mode) {
-                    Label("\(game.title) can't use this mode — it has no upscaler integration to hook into. Anvil uses its FSR 3 for every game at launch instead.",
-                          systemImage: "exclamationmark.triangle.fill")
-                        .font(.caption).foregroundStyle(.orange)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
+            if config.mode.requiresGameSupport {
+                Label("This mode needed a library of AMD's in the game's folder and did nothing without one, so it runs as FSR 3 for every game. A game's own DLSS, XeSS or FSR is chosen under “The Game's Own Upscaler” on its Performance tab.",
+                      systemImage: "info.circle")
+                    .font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
         }
@@ -335,18 +318,6 @@ struct UpscalerEditor: View {
             let rt = try upscalers.installRuntime(from: url)
             installError = nil
             installNote = "Added FidelityFX \(rt.version)."
-        } catch {
-            installNote = nil
-            installError = error.localizedDescription
-        }
-    }
-
-    private func inject(_ payload: FSRRuntime, game: Game) {
-        do {
-            let report = try upscalers.forceInject(payload, intoGameAt: game.executablePath)
-            config.injectedPayloadID = payload.id
-            installError = nil
-            installNote = report.summary
         } catch {
             installNote = nil
             installError = error.localizedDescription

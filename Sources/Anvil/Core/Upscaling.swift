@@ -17,6 +17,11 @@ enum UpscalerMode: String, Codable, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
+    /// The modes offered. The two that needed a library of AMD's in the game's folder — and did nothing without one —
+    /// were retired in 0.62: a game's own DLSS, XeSS or FSR is chosen on its page instead (GameUpscaler), and they
+    /// still read from a file written before then.
+    static let choices: [UpscalerMode] = [.off, .metalFX, .fsr1, .fsr3Every]
+
     var title: String {
         switch self {
         case .off: "Off (native rendering)"
@@ -284,9 +289,11 @@ struct UpscalerConfig: Codable, Hashable {
     /// The mode a launch uses. One the game's files don't support runs as FSR 3 for every game,
     /// as the Upscaling page says it will. Before 0.29 that held only for a game never scanned:
     /// one scanned without FSR, DLSS or XeSS launched set up for an upscaler that wasn't there.
+    ///
+    /// The retired modes run as FSR 3 for every game whatever the game has (0.62): without a payload of AMD's, nothing
+    /// read the variables they set — Hogwarts Legacy ran FSR 1 under one of them on 21 October.
     var effectiveMode: UpscalerMode {
-        if forceInjection { return mode }
-        if mode.requiresGameSupport && !(capability.scanned && capability.supports(mode)) { return .fsr3Every }
+        if mode.requiresGameSupport { return .fsr3Every }
         return mode
     }
 }

@@ -40,6 +40,8 @@ struct FrameWindow: Codable, Hashable {
     var heaviestPasses: [String]? = nil
     /// Smooth Motion's frames between: how long the game waited a frame for its frames in flight.
     var betweenWaitMs: Double? = nil
+    /// The game's memory, as libanvil reads it: "| memory 20023 MB".
+    var memoryMB: Double? = nil
 
     /// Mostly drawn behind another app: not play, whatever the numbers say.
     var wasBehind: Bool { (behind ?? 0) >= 300 }
@@ -72,6 +74,12 @@ enum FrameLog {
             if let window = parse(line) { windows.append(window) }
         }
         return Session(startedAt: date, windows: windows)
+    }
+
+    /// The most memory the game used in its last session in `text` (game.log), in bytes — what it needs again.
+    static func peakMemory(of title: String, text: String) -> Int64? {
+        guard let mb = lastSession(of: title, text: text)?.windows.compactMap(\.memoryMB).max(), mb > 0 else { return nil }
+        return Int64(mb * 1_048_576)
     }
 
     /// One statistics line, or nil for any other line.
@@ -127,6 +135,9 @@ enum FrameLog {
                 if let bar = list.range(of: " | ") { list = list[..<bar.lowerBound] }
                 window.heaviestPasses = list.split(separator: ";").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
             }
+        }
+        if let r = body.range(of: "| memory ") {
+            window.memoryMB = number(in: body[r.upperBound...], after: nil, before: " MB")
         }
         if let r = body.range(of: "| frames between: the game waited ") {
             window.betweenWaitMs = number(in: body[r.upperBound...], after: nil, before: " ms")

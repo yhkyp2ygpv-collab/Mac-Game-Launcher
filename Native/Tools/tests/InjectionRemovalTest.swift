@@ -23,9 +23,9 @@ import Foundation
             let before = try! fm.contentsOfDirectory(atPath: folder.path).filter { $0.hasSuffix(".dll") }.sorted()
             guard let left = UpscalerManager.unusedInjection(for: game, config: config) else { check(false, "\(dir): leftovers found"); continue }
             print("\(dir): \(left.files) injected files present; own replaced: \(left.replacedOwn)")
-            // An upscaler that uses the payload is not "unused".
+            // Since 0.62 no mode uses a payload: the two that did are retired and run as FSR 3 for every game.
             var fsr3 = config; fsr3.mode = .fsr3Native
-            check(UpscalerManager.unusedInjection(for: game, config: fsr3) == nil, "\(dir): an FSR 3 setup keeps its payload")
+            check(UpscalerManager.unusedInjection(for: game, config: fsr3) != nil, "\(dir): a retired FSR 3 mode doesn't keep it")
             try! UpscalerManager.shared.removeInjection(fromGameAt: game.executablePath)
             let after = try! fm.contentsOfDirectory(atPath: folder.path).sorted()
             print("\(dir): before \(before)\n\(dir): after  \(after)")

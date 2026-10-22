@@ -2,7 +2,8 @@ import Foundation
 
 // 0.58: a Windows game's own crash record (CrashDump) read for where it crashed, and what that says about FSR and frame
 // generation (GameDoctor.crashCause). Args: a real minidump (LEGO Star Wars' of 17 October, written 2 s after the Mac
-// woke). Run with CFFIXED_USER_HOME set to a scratch folder.
+// woke), anvil.log, and (0.62) Hogwarts Legacy's of 21 October with the Epic Games setup it ran in. Run with
+// CFFIXED_USER_HOME set to a scratch folder.
 @main struct CrashDumpHarness {
     /// A minidump of our own: modules, a stack, an exception at `fault`, the stack holding `onStack`.
     static func dump(modules: [(String, UInt64, UInt32)], fault: UInt64, onStack: [UInt64]) -> Data {
@@ -123,6 +124,55 @@ import Foundation
             } else {
                 print("(no FSR 3 switch-off in this launch log)")
             }
+        }
+
+        // 4. (0.62) Hogwarts Legacy's own, of 21 October: an unhandled C++/WinRT exception at its pause menu (args 3 and 4:
+        // its minidump, and the Epic Games setup it ran in, read for its registry).
+        if args.count >= 5 {
+            let real = URL(fileURLWithPath: args[4], isDirectory: true)
+            let prefix = URL(fileURLWithPath: home).appendingPathComponent("hogwarts", isDirectory: true)
+            let folder = prefix.appendingPathComponent("drive_c/users/crossover/AppData/Local/Phoenix/Saved/Crashes/D5A205B34C1B65B7B3A14A9ED32D527D", isDirectory: true)
+            try? fm.createDirectory(at: folder, withIntermediateDirectories: true)
+            let file = folder.appendingPathComponent("Phoenix-Game-Shipping-204_2026.10.21_16.39.dmp")
+            try? fm.removeItem(at: file)
+            try? fm.copyItem(at: URL(fileURLWithPath: args[3]), to: file)
+            try? fm.removeItem(at: prefix.appendingPathComponent("system.reg"))
+            try? fm.copyItem(at: real.appendingPathComponent("system.reg"), to: prefix.appendingPathComponent("system.reg"))
+            let iso = ISO8601DateFormatter()
+            try? fm.setAttributes([.modificationDate: iso.date(from: "2026-10-21T23:39:58Z")!], ofItemAtPath: file.path)
+            let report = CrashDump.read((try? Data(contentsOf: file)) ?? Data())
+            check(report?.code == CrashDump.cppException && report?.thrower?.hasSuffix("\\HogwartsLegacy.exe") == true
+                  && report?.throwInfoRVA == 0x90E_0C68, "a C++ exception thrown by the game: \(String(describing: report))")
+            let explained = report.map { CrashDump.explain($0, prefix: prefix) }
+            check(explained?.thrownTypes == ["winrt::hresult_class_not_registered", "winrt::hresult_error"],
+                  "what was thrown, read from the game's program: \(explained?.thrownTypes ?? [])")
+            check(explained?.missingClasses == ["Windows.UI.ViewManagement.Core.CoreInputView"],
+                  "the Windows class it asks for that the setup hasn't: \(explained?.missingClasses ?? [])")
+            let words = explained.flatMap(CrashDump.notGraphics)
+            check(words?.contains("on-screen keyboard") == true && words?.contains("not graphics") == true, "said: \(words ?? "nil")")
+            check(report.flatMap(CrashDump.notGraphics) == nil, "unread, the same dump rules nothing out")
+            let title = "Hogwarts Legacy"
+            let log = """
+            2026-10-21T23:23:58Z  prepareAndLaunch: \(title) container=Epic Games runtime=Mythic Engine 3.0.0 exe=/x.exe
+            2026-10-21T23:24:05Z    env WINEPREFIX=\(prefix.path)
+            2026-10-21T23:40:30Z  exited: \(title) code=3 after 984.8s, 985 s of it awake
+            """
+            let cause = GameDoctor.crashCause(launchLines: log.split(separator: "\n"), gameLines: [])
+            check(cause?.contains("Windows' on-screen keyboard") == true, "the crash put where it was: \(cause ?? "nil")")
+            print("Hogwarts Legacy, 21 October: \(cause ?? "nil")")
+            // From the launch log as it is, as Housekeeping's 0.62 restore reads it.
+            if let text = try? String(contentsOfFile: args[2], encoding: .utf8) {
+                let lines = text.split(separator: "\n")
+                if let off = lines.lastIndex(where: { $0.contains("autopilot: \(title) closed unexpectedly with FSR in one pass") }),
+                   let start = lines[..<off].lastIndex(where: { $0.contains("prepareAndLaunch: \(title) ") }) {
+                    let real = GameDoctor.crashCause(launchLines: Array(lines[start..<off]), gameLines: [])
+                    check(real?.contains("on-screen keyboard") == true, "from the launch log as it is: \(real ?? "nil")")
+                } else {
+                    print("(no one-pass switch-off for \(title) in this launch log)")
+                }
+            }
+        } else {
+            print("(no Hogwarts Legacy dump given: its part left out)")
         }
 
         if failures > 0 { print("\(failures) failures"); exit(1) }

@@ -19,6 +19,8 @@ enum Housekeeping {
         fsr3EverywhereOnce()
         restoreMisjudgedFsr3Once()
         restoreOnePassBeforeFirstFrameOnce()
+        restoreMisjudgedOnePassOnce()
+        retireGameSupportModesOnce()
         // Sessions Learn missed — Anvil closed while a game ran — learned from game.log.
         Task { await LearnStore.shared.catchUp() }
         // Exports kept in both places, and any game back with saves from before it asked about (SaveVault).
@@ -322,6 +324,60 @@ enum Housekeeping {
             guard !VCRuntime.drewBefore(title: game.title, installedAt: .distantFuture) else { continue }
             GraphicsPrep.onePassBackOn(gameID: game.id)
             AnvilLog.write("graphics prep: \(game.title) — FSR's one pass back: it was turned off when the game closed before its first frame, before FSR starts")
+        }
+    }
+
+    /// Once, in 0.62.0: FSR's one pass back where Autopilot took it for a crash the game's own crash record now puts
+    /// somewhere else. Hogwarts Legacy closed at its pause menu on 21 October on a C++ exception from Windows'
+    /// on-screen keyboard, which Wine doesn't have (CrashDump.explain) — read as "not online code, so maybe graphics".
+    static func restoreMisjudgedOnePassOnce() {
+        let key = "restoreMisjudgedOnePass-0.62.0"
+        guard !UserDefaults.standard.bool(forKey: key), !Library.shared.games.isEmpty else { return }
+        UserDefaults.standard.set(true, forKey: key)
+        guard let text = AnvilLog.tail(bytes: 4_000_000) else { return }
+        let lines = text.split(separator: "\n")
+        for game in Library.shared.games where GraphicsPrep.stored(gameID: game.id)?.onePassOff == true {
+            guard let off = lines.lastIndex(where: { $0.contains("autopilot: \(game.title) closed unexpectedly with FSR in one pass") }),
+                  let start = lines[..<off].lastIndex(where: { $0.contains("prepareAndLaunch: \(game.title) ") }),
+                  let cause = GameDoctor.crashCause(launchLines: Array(lines[start..<off]), gameLines: []) else { continue }
+            GraphicsPrep.onePassBackOn(gameID: game.id)
+            AnvilLog.write("graphics prep: \(game.title) — FSR's one pass back: \(cause)")
+        }
+    }
+
+    /// Once, in 0.62.0: the two upscaler modes that needed a library of AMD's in the game's folder — "FSR 3 temporal,
+    /// only if the game already has FSR" and "…only if it has DLSS or XeSS" — retired for Anvil's FSR 3, and what they
+    /// put into a game's folder taken out again. Hogwarts Legacy was set to the second on 21 October, with Force
+    /// injection: Anvil copied the FidelityFX SDK's two libraries beside its launcher, which never loads them, and
+    /// set variables nothing reads. A game's own DLSS, XeSS and FSR are now chosen on its page (GameUpscaler).
+    static func retireGameSupportModesOnce() {
+        let key = "retireGameSupportModes-0.62.0"
+        guard !UserDefaults.standard.bool(forKey: key), !Library.shared.games.isEmpty else { return }
+        UserDefaults.standard.set(true, forKey: key)
+        for var game in Library.shared.games {
+            let manifest = UpscalerManager.shared.injectionManifest(forGameAt: game.executablePath)
+            if manifest != nil, AntiCheat.detect(forExecutable: game.executableURL).isEmpty {
+                do {
+                    try UpscalerManager.shared.removeInjection(fromGameAt: game.executablePath)
+                    AnvilLog.write("upscaling: \(game.title) — the \(manifest?.copied.count ?? 0) libraries Anvil injected into its folder taken out; what the game had there put back")
+                } catch {
+                    AnvilLog.write("upscaling: \(game.title) — the libraries Anvil injected couldn't be taken out: \(error.localizedDescription)")
+                }
+            }
+            guard var o = game.upscalerOverride, o.mode.requiresGameSupport || o.forceInjection else { continue }
+            let was = o.mode.title
+            if o.mode.requiresGameSupport { o.mode = .fsr3Every }
+            o.forceInjection = false
+            o.injectedPayloadID = nil
+            game.upscalerOverride = o
+            Library.shared.update(game)
+            AnvilLog.write("upscaling: \(game.title) — “\(was)” retired: Anvil's FSR 3 to the display, and the game's own upscaler chosen on its page")
+        }
+        for var container in Library.shared.containers where container.upscaler.mode.requiresGameSupport || container.upscaler.forceInjection {
+            if container.upscaler.mode.requiresGameSupport { container.upscaler.mode = .fsr3Every }
+            container.upscaler.forceInjection = false
+            container.upscaler.injectedPayloadID = nil
+            Library.shared.update(container)
         }
     }
 

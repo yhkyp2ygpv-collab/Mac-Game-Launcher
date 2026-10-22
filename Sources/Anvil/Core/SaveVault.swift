@@ -390,13 +390,15 @@ enum SaveVault {
 
     /// The chosen saves into the game's Windows setup. What it has now is exported first (both places), and what's
     /// in the way is moved aside, never overwritten. Returns what was done, in words.
+    /// `others`: the other games in its setup, whose save folders are left as they are (`GameSaves.toRestore`).
     static func restore(_ candidate: Candidate, for game: Game, container: Container, aloneInContainer: Bool,
-                        containers: [Container]) throws -> String {
-        try restoreKeeping(candidate, for: game, container: container, aloneInContainer: aloneInContainer, containers: containers).text
+                        containers: [Container], others: [Game] = []) throws -> String {
+        try restoreKeeping(candidate, for: game, container: container, aloneInContainer: aloneInContainer, containers: containers,
+                           others: others).text
     }
 
     static func restoreKeeping(_ candidate: Candidate, for game: Game, container: Container, aloneInContainer: Bool,
-                               containers: [Container]) throws -> Restored {
+                               containers: [Container], others: [Game] = []) throws -> Restored {
         if case .current = candidate.kind { return Restored(text: "kept the saves it has") }
         var before = "nothing there yet to keep"
         var keptAs: URL?
@@ -416,15 +418,16 @@ enum SaveVault {
             guard let zip = zips.first(where: { FileManager.default.fileExists(atPath: $0.path) }) else {
                 throw Failure.gone("That export isn't there any more.")
             }
-            let manifest = try GameSaves.restore(from: zip, into: container)
+            let manifest = try GameSaves.restore(from: zip, into: container) { GameSaves.toRestore($0, for: game, others: others) }
             what = "restored \(manifest.places.count) save folder\(manifest.places.count == 1 ? "" : "s") from the export of \(at.formatted(date: .abbreviated, time: .shortened)) (\(zip.lastPathComponent))"
         case .otherSetup(let id, let name, let places):
             guard let other = containers.first(where: { $0.id == id }) else { throw Failure.gone("That Windows setup isn't there any more.") }
-            let n = try GameSaves.copy(places, from: other, into: container)
+            let n = try GameSaves.copy(GameSaves.toRestore(places, for: game, others: others), from: other, into: container)
             what = "copied \(n) save folder\(n == 1 ? "" : "s") from the “\(name)” Windows setup"
         case .backup(let folder, _, let name, let places, let at):
             guard FileManager.default.fileExists(atPath: folder.path) else { throw Failure.gone("That backup isn't there any more.") }
-            let n = try GameSaves.copy(places, fromDriveC: folder.appendingPathComponent("drive_c", isDirectory: true), into: container)
+            let n = try GameSaves.copy(GameSaves.toRestore(places, for: game, others: others),
+                                       fromDriveC: folder.appendingPathComponent("drive_c", isDirectory: true), into: container)
             what = "put back \(n) save folder\(n == 1 ? "" : "s") from the backup of “\(name)” made \(at.formatted(date: .abbreviated, time: .shortened))"
         }
         let read = candidate.summary.map { " (\($0.text))" } ?? ""
@@ -545,10 +548,12 @@ final class SaveChoice: ObservableObject {
         guard let container = Library.shared.container(id: game.containerID) else {
             return .failure(SaveVault.Failure.gone("Its Windows setup isn't there any more."))
         }
-        let alone = !Library.shared.games.contains { $0.id != game.id && $0.containerID == game.containerID }
+        let others = Library.shared.games.filter { $0.id != game.id && $0.containerID == game.containerID }
+        let alone = others.isEmpty
         let containers = Library.shared.containers
         let result = await Task.detached(priority: .userInitiated) { () -> Result<SaveVault.Restored, Error> in
-            Result { try SaveVault.restoreKeeping(candidate, for: game, container: container, aloneInContainer: alone, containers: containers) }
+            Result { try SaveVault.restoreKeeping(candidate, for: game, container: container, aloneInContainer: alone, containers: containers,
+                                                  others: others) }
         }.value
         changes += 1
         switch result {

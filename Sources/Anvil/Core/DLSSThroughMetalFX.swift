@@ -84,6 +84,17 @@ enum DLSSThroughMetalFX {
         return root
     }
 
+    /// Whether D3DMetal showed the container's games an NVIDIA GPU — DLSS offered — at its last start with the
+    /// translation on. It does that when it finds nvngx.dll, and then writes NGX's own registry key, FullPath under
+    /// HKLM\Software\Nvidia Corporation\Global\NGXCore, to where it found it (read out of D3DMetal 3.0: DXGIAdapter's
+    /// vendor becomes 0x10DE when nvngxDLLLocation finds the file). Hogwarts Legacy's setup had it on 21 October.
+    nonisolated static func shownNVIDIA(_ container: Container) -> Bool {
+        guard let reg = try? String(contentsOf: container.prefixURL.appendingPathComponent("system.reg"), encoding: .utf8),
+              let key = reg.range(of: "[Software\\\\Nvidia Corporation\\\\Global\\\\NGXCore]", options: .caseInsensitive) else { return false }
+        let block = reg[key.upperBound...].prefix { $0 != "[" }
+        return block.contains("\"FullPath\"=")
+    }
+
     /// A link in Anvil's folder to a file of the engine, by its full path.
     private nonisolated static func link(_ at: URL, to target: URL) throws {
         let fm = FileManager.default

@@ -19,6 +19,7 @@
 #include "anvil_guardian.h"
 #include "anvil_io.h"
 #import <Foundation/Foundation.h>
+#include <Block.h>
 #import <QuartzCore/QuartzCore.h>
 #import <QuartzCore/CAMetalLayer.h>
 #import <Metal/Metal.h>
@@ -505,6 +506,9 @@ constexpr double kGenVrrEngageSeconds = 10.0;
 // LEGO Star Wars at Endor made 25–35 fps of its own for minutes at a time, with nothing between.
 constexpr double kFillLowFPS = 24.0;          // below this, too much happens between frames to guess
 constexpr double kFillHigh = 0.52;            // of the display's rate: 62 at 120 Hz
+// Leaving takes more than coming in: 74 at 120 Hz. With one edge both ways, a game held to 60 of its own measured
+// 60–65 with frames made ahead of it, and Smooth Motion went on and off every 4–6 s in Hogwarts Legacy (21 October).
+constexpr double kFillLeaveHigh = 0.62;
 constexpr double kFillEngageSeconds = 3.0;
 constexpr double kFillLeaveSeconds = 4.0;
 
@@ -625,6 +629,11 @@ id<MTLTexture> g_midInputs[3] = {nil, nil, nil};  // what the game draws into, a
 int      g_midInputNext = 0;
 Class    g_drawableClass = nil;                   // the layer's drawables' class, for a stand-in without one
 std::atomic<int>  g_midBacklog{0};                // frames handed over that the presenter hasn't shown yet
+std::atomic<uint64_t> g_midBoosts{0};             // presenter work raised to user-interactive priority, behind
+int g_midStalls = 0;                               // stalls with the game's frames waiting, this session
+/// Nothing shown this long with the game's frames waiting: the presenter has stalled (midStalled).
+constexpr double kMidStallSec = 0.4;
+void midStalled(double now);
 int g_midInFlight = 2;                            // the game's frames on their way to the screen at most (ANVIL_MID_IN_FLIGHT)
 bool g_jitOn = false;                             // each frame started just in time at a low frame rate (jitHold; ANVIL_JIT=1)
 std::atomic<bool> g_midInsert{false};             // making frames between, at the rate the presenter sees
@@ -2902,9 +2911,12 @@ constexpr double kResumeGapSec = 15.0;
 /// After coming back, this long shown as each frame is ready before Steady holds or probes again.
 constexpr double kResumeSettleSec = 8.0;
 
-/// At each present: what the game spent on the frame — from leaving the last present
-/// to arriving at this one, less any wait for a drawable — and where it stands.
-void steadyOnPresent(double callAt) {
+/// Each of the game's frames in front, whoever shows it: a long gap since the last is the game back from a break
+/// (resumeAfterGap). Until 0.62 only frames Steady judged counted, and while Smooth Motion showed them Steady
+/// isn't asked — so each time it stopped, its whole run read as a gap with no frames. In Hogwarts Legacy on 22
+/// October that lifted the pause Guardian had just put on it after its presenter stalled, 18 minutes of play read as
+/// "back after 1035 s", and it started again seconds later and stalled again.
+void noteFrameForGap(double callAt) {
     const double wall = sleepingClock();
     if (g_lastPresentCallAt > 0.0) {
         const double gap = std::max(callAt - g_lastPresentCallAt, g_lastPresentWall > 0.0 ? wall - g_lastPresentWall : 0.0);
@@ -2912,6 +2924,12 @@ void steadyOnPresent(double callAt) {
     }
     g_lastPresentCallAt = callAt;
     g_lastPresentWall = wall;
+}
+
+/// At each present: what the game spent on the frame — from leaving the last present
+/// to arriving at this one, less any wait for a drawable — and where it stands.
+void steadyOnPresent(double callAt) {
+    noteFrameForGap(callAt);
     if (g_steadyStartAt < 0.0) {
         g_steadyStartAt = callAt;
         g_steadySettled = g_steadySettleSec <= 0.0;
@@ -3097,6 +3115,7 @@ double steadyHoldTarget(double now) {
 /// second, the display was then judged fixed, and the hold never ended — every frame held
 /// for the whole session, 60–80 fps shown while the game could make 85 to 185.
 void steadyAtPresent(double callAt, bool drawable) {
+    if (drawable) noteFrameForGap(callAt);
     if (g_vrrState == 0 && g_vrrRetryAt > 0.0 && callAt >= g_vrrRetryAt) {
         g_vrrRetryAt = 0.0;
         g_vrrChecked = 0;
@@ -3452,7 +3471,20 @@ void midHandOff(id<MTLCommandBuffer> cb, id<CAMetalDrawable> real, AnvilProxyDra
         // When its GPU work ended, on the clock presents are timed with.
         const double handled = CACurrentMediaTime();
         const double ended = done.GPUEndTime > 0.0 ? done.GPUEndTime : handled;
-        dispatch_async(g_midDispatch, ^{ midPresent(real, proxy, shown, made, ended, handled); });
+        dispatch_block_t work = ^{ midPresent(real, proxy, shown, made, ended, handled); };
+        // The presenter behind — frames waiting, nothing shown for three of the game's frames: this one, and with it
+        // whatever is ahead of it on the presenter's queue, runs at user-interactive priority. At utility priority,
+        // on the efficiency cores, it went without the CPU for 1–2.6 s at a time in Hogwarts Legacy on 22 October,
+        // the game's own threads at three quarters of a core each and the Mac swapping: the game, which waits for
+        // its frames to reach the screen, stopped with it.
+        if (g_midBacklog.load() >= 2 && handled - g_midShownAt.load() > std::max(0.1, 3.0 * g_midInterval)) {
+            dispatch_block_t urgent = dispatch_block_create_with_qos_class(DISPATCH_BLOCK_ENFORCE_QOS_CLASS, QOS_CLASS_USER_INTERACTIVE, 0, work);
+            dispatch_async(g_midDispatch, urgent);
+            Block_release(urgent);
+            g_midBoosts.fetch_add(1, std::memory_order_relaxed);
+        } else {
+            dispatch_async(g_midDispatch, work);
+        }
     }];
 }
 
@@ -3940,8 +3972,10 @@ void genDecide(double now, double ownFPS, double windowSec) {
             return;
         }
         // Out of the band — the game back above it, down below what can be guessed, or the panel
-        // no longer following — for a few seconds: the game's own frames, shown as ready.
-        const bool out = !fillBand;
+        // no longer following — for a few seconds: the game's own frames, shown as ready. Out above it only past
+        // kFillLeaveHigh, and below it a little under where it comes in, as frames between leave theirs.
+        const bool stays = fillAllowed && !canBetween && ownFPS >= kFillLowFPS - 3.0 && ownFPS < kFillLeaveHigh * targetHz;
+        const bool out = !stays;
         g_fillOutSeconds = out ? g_fillOutSeconds + windowSec : 0.0;
         if (g_fillOutSeconds >= kFillLeaveSeconds) {
             genStop(now, ownFPS >= kFillLowFPS ? "[anvil] Smooth Motion off — the game is at %.1f fps of its own, enough on its own"
@@ -4102,20 +4136,34 @@ void guardianFrame(double now, double dt, double waited) {
          ms, g_presentEma * 1000.0, cause, readMB, readMs, (unsigned long long)compiles, compiles == 1 ? "" : "s", compileMs, waitMs);
 }
 
+/// Smooth Motion's presenter stalled with the game's frames waiting: the game's own frames again at once, frames
+/// between paused half a minute, and the presenter's queue raised to user-interactive priority so what it still
+/// holds goes out. On the game's thread (its nextDrawable, or Guardian's check-up).
+void midStalled(double now) {
+    if (!g_mid.load()) return;
+    const double quiet = now - g_midShownAt.load();
+    g_midPauseFor = std::max(g_midPauseFor, 30.0);
+    g_midPausedUntil = now + 30.0;
+    genHalt(now);
+    if (g_midDispatch) {
+        dispatch_block_t lift = dispatch_block_create_with_qos_class(DISPATCH_BLOCK_ENFORCE_QOS_CLASS, QOS_CLASS_USER_INTERACTIVE, 0, ^{});
+        dispatch_async(g_midDispatch, lift);
+        Block_release(lift);
+    }
+    ++g_guardFixes;
+    ++g_midStalls;
+    diag("[anvil] Smooth Motion: its presenter showed nothing for %.1f s with the game's frames waiting — the game's own "
+         "frames from this one, frames between paused for 30 s (%d this session; the presenter raised to full priority %llu "
+         "times when behind)", quiet, g_midStalls, (unsigned long long)g_midBoosts.load());
+}
+
 /// Guardian's check-up, every ten seconds of play: that frames still reach the screen, and that nothing of
 /// Anvil's switches back and forth.
 void guardianCheckUp(double now) {
     ++g_guardCheckUps;
     // Smooth Motion's presenter stalled with the game's frames in it: the game's own frames again at once,
     // frames between paused half a minute. The game waits on the presenter for its frames in flight.
-    if (g_mid.load() && g_midBacklog.load() > 0 && now - g_midShownAt.load() > 1.0 && now - g_midHandedAt.load() < 0.5) {
-        g_midPauseFor = std::max(g_midPauseFor, 30.0);
-        g_midPausedUntil = now + 30.0;
-        genHalt(now);
-        ++g_guardFixes;
-        diag("[anvil] guardian: Smooth Motion's presenter showed nothing for %.1f s with the game's frames waiting — the game's "
-             "own frames again, frames between paused for 30 s", now - g_midShownAt.load());
-    }
+    if (g_mid.load() && g_midBacklog.load() > 0 && now - g_midShownAt.load() > 1.0 && now - g_midHandedAt.load() < 0.5) midStalled(now);
     // Smooth Motion started five times or more in two minutes: slower to start and to stop for three.
     if (now >= g_guardCalmUntil && guardCountSince(g_guardStarts, g_guardStartsN, now - 120.0) >= 5) {
         g_guardCalmUntil = now + 180.0;
@@ -5212,6 +5260,9 @@ id hookedNextDrawable(id self, SEL _cmd) {
             // Handed over and never back — a command buffer that never finished — is given up on.
             const double now = CACurrentMediaTime();
             if (!g_mid.load() && now - g_midShownAt.load() > 0.5 && now - g_midHandedAt.load() > 0.5) g_midBacklog.store(0);
+            // The presenter stalled with the game's frames in it: the game's own frames from this one, not after
+            // Guardian's next look (up to ten seconds, each frame meanwhile held here a tenth of a second).
+            if (g_mid.load() && now - g_midShownAt.load() > kMidStallSec) midStalled(now);
         }
         g_midGateWaitUs.fetch_add((uint64_t)((CACurrentMediaTime() - from) * 1e6), std::memory_order_relaxed);
     }

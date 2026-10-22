@@ -68,6 +68,12 @@ struct Game: Identifiable, Codable, Hashable {
     /// Apple's MetalFX. See DLSSThroughMetalFX. Switched off by Autopilot if the game
     /// crashes with it on.
     var dlssThroughMetalFX: Bool = true
+    /// For a game whose settings file Anvil knows (GameUpscaler): which of its own upscalers it starts with, and at what
+    /// quality — nil for Automatic, chosen from how it runs here.
+    var gameUpscaler: GameUpscaler.Choice = .automatic
+    var gameUpscalerQuality: UpscaleQuality?
+    /// Its film grain and colour fringing off while Anvil upscales (GameUpscaler).
+    var cleanPicture: Bool = true
     /// Graphics Prep before a start that needs it: Anvil's FSR and frame generation compiled
     /// for this Mac and tested on its GPU at the game's size. See GraphicsPrep.
     var prepareGraphics: Bool = true
