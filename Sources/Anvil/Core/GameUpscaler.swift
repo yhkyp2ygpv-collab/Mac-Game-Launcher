@@ -52,6 +52,17 @@ enum GameUpscaler {
         }
     }
 
+    /// Which frame generation a game whose settings Anvil knows runs with (Game.gameFrameGen).
+    ///
+    /// Automatic is the game's own where it has one: made from its own motion vectors and depth, as Anvil's can't
+    /// be. Hogwarts Legacy on 22 October, Ultra on a base M4: 67 fps on average with AMD FSR 3's frame generation and
+    /// Anvil only taking the picture to the display (1.3 ms of the GPU a frame), its FSR 3 at Performance; 48 with
+    /// Anvil's Smooth Motion and DLSS at Performance, whose FSR 3 and frames between took 5–8 ms of every frame.
+    enum FrameGen: String, Codable, CaseIterable, Identifiable {
+        case automatic, anvil, off
+        var id: String { rawValue }
+    }
+
     /// The qualities offered: how much of its window each way the game draws before its upscaler fills it in.
     static let qualities: [UpscaleQuality] = [.quality, .balanced, .performance]
 
@@ -85,6 +96,9 @@ enum GameUpscaler {
         let heightKey: String
         /// Its options kept again in a save in its SaveGames folder, which it applies over the ini (`OptionsSave`).
         let optionsSave: String?
+        /// Its own frame generation, as it writes it on, and in words.
+        let ownFrameGen: String?
+        let ownFrameGenTitle: String
 
         func value(_ brand: Brand, _ quality: UpscaleQuality) -> String? {
             modes[brand]?.min { abs($0.scale - quality.renderScale) < abs($1.scale - quality.renderScale) }?.value
@@ -114,7 +128,9 @@ enum GameUpscaler {
         frameGenKey: "FrameGeneration", frameGenOff: #"(Mode=Off,NumFramesInterpolated=0,LocStr="Off")"#,
         sharpenKey: "UpscaleSoftness", sharpenModifiedKey: "bIsUpscaleSoftnessModified", sharpenDefault: "0.200000",
         cameraKey: "CameraSettings", cleanOff: ["bFilmGrain", "bChromaticAberration"],
-        widthKey: "ResolutionSizeX", heightKey: "ResolutionSizeY", optionsSave: "SavedUserOptions.sav")
+        widthKey: "ResolutionSizeX", heightKey: "ResolutionSizeY", optionsSave: "SavedUserOptions.sav",
+        ownFrameGen: #"(Mode=AMD_FFXFI,NumFramesInterpolated=1,LocStr="AMD_FFXFI_MODE_X2")"#,
+        ownFrameGenTitle: "AMD FSR 3's frame generation")
 
     static let profiles: [Profile] = [hogwarts]
 
@@ -219,7 +235,17 @@ enum GameUpscaler {
         var note: String?
         /// Its options save written along with its ini (nil in records from before Anvil knew of it).
         var savedOptions: Bool? = nil
+        /// What the record is from: 2 since 0.63, when the game's own frame generation became Automatic's. One from
+        /// before is started over once.
+        var version: Int? = nil
+        /// Anvil switched the game's own frame generation on; the player switched it off again in its menu; the
+        /// upscalers the game didn't keep it with (it turns its frame generation off with one it can't pair it with).
+        var frameGenOnByAnvil: Bool? = nil
+        var frameGenLeftOff: Bool? = nil
+        var frameGenRefusedWith: [Brand]? = nil
     }
+
+    static let recordVersion = 2
 
     nonisolated(unsafe) static var directory: URL = RuntimeManager.support.appendingPathComponent("GameUpscaler", isDirectory: true)
 
@@ -259,10 +285,24 @@ enum GameUpscaler {
     }
 
     /// The upscaler a start sets: the chosen one where it runs here, else the next of DLSS, XeSS, FSR that does.
-    static func resolve(_ choice: Choice, available: [Brand], unavailable: [Brand]) -> Brand? {
-        let usable = available.filter { !unavailable.contains($0) }
+    ///
+    /// With the game's own frame generation, its FSR first: the pair seen working together (Hogwarts Legacy, 22
+    /// October: AMD's frame generation with its FSR 3), then DLSS, then XeSS — Intel's network takes more of an Apple
+    /// GPU's time. And not an upscaler the game wouldn't keep its frame generation with.
+    static func resolve(_ choice: Choice, available: [Brand], unavailable: [Brand], gamesFrameGen: Bool = false,
+                        frameGenRefusedWith: [Brand] = []) -> Brand? {
+        var usable = available.filter { !unavailable.contains($0) }
+        if gamesFrameGen, usable.contains(where: { !frameGenRefusedWith.contains($0) }) {
+            usable = usable.filter { !frameGenRefusedWith.contains($0) }
+        }
         if let wanted = choice.brand, usable.contains(wanted) { return wanted }
-        return [Brand.dlss, .xess, .fsr].first { usable.contains($0) }
+        return (gamesFrameGen ? [Brand.fsr, .dlss, .xess] : [Brand.dlss, .xess, .fsr]).first { usable.contains($0) }
+    }
+
+    /// Whether a start runs the game's own frame generation: chosen (Automatic, where it has one), not switched off in
+    /// its menu since Anvil switched it on.
+    static func usesGamesFrameGen(_ game: Game, profile: Profile, record: Record?) -> Bool {
+        profile.ownFrameGen != nil && game.gameFrameGen == .automatic && record?.frameGenLeftOff != true
     }
 
     /// Where Automatic starts on a Mac: Balanced on standard graphics (a base M4) — 0.58 of the window each way, about
@@ -297,6 +337,19 @@ enum GameUpscaler {
             record?.frameGenOffByAnvil = false
             record?.sharpenByAnvil = false
         }
+        // A record from before 0.63, when the game's own frame generation became Automatic's: set up again once, as
+        // the player asked on 22 October ("I need real frame gen working … stable 80"). What they had changed in its
+        // menu since was trying for the same.
+        var fresh = false
+        if let r = record, (r.version ?? 0) < recordVersion {
+            record?.wrote = nil
+            record?.changedInGame = nil
+            record?.frameGenOffByAnvil = false
+            record?.sharpenByAnvil = false
+            record?.version = recordVersion
+            fresh = true
+        }
+        let gamesFG = usesGamesFrameGen(game, profile: profile, record: record)
         var keys: [(String, String)] = []
         var tupleKeys: [String: String] = [:]
         var lines: [String] = []
@@ -312,7 +365,8 @@ enum GameUpscaler {
             lines.append("its own upscaler: \(now.text), as chosen in its menu since Anvil set \(profile.reading(wrote)?.brand.short ?? wrote) — left as it is; choosing on its page sets it again")
         } else {
             let brands = available(for: game, profile: profile, dlssReady: dlssReady)
-            if let brand = resolve(choice, available: brands, unavailable: record?.unavailable ?? []) {
+            if let brand = resolve(choice, available: brands, unavailable: record?.unavailable ?? [], gamesFrameGen: gamesFG,
+                                   frameGenRefusedWith: record?.frameGenRefusedWith ?? []) {
                 let auto = record?.autoQuality ?? startQuality(tier)
                 let quality = game.gameUpscalerQuality ?? auto
                 if let value = profile.value(brand, quality) {
@@ -320,13 +374,21 @@ enum GameUpscaler {
                     let set = read(setting([(profile.upscaleKey, value)], in: profile.section, of: source), profile: profile)
                     var line = "its own upscaler: \(set.text)"
                     if game.gameUpscalerQuality == nil { line += ", the quality Anvil found for it here" }
-                    if let wanted = choice.brand, wanted != brand { line += " — \(wanted.title) doesn't run here" }
+                    if let wanted = choice.brand, wanted != brand {
+                        line += (record?.frameGenRefusedWith ?? []).contains(wanted) && gamesFG
+                            ? " — the game doesn't run its own frame generation with \(wanted.short)"
+                            : " — \(wanted.title) doesn't run here"
+                    }
                     if now.upscale != value, now.upscale != nil { line += " (it was \(now.text))" }
                     lines.append(line)
+                    let old = record
                     record = Record(wrote: value, choice: choice, quality: game.gameUpscalerQuality, autoQuality: auto, at: Date(),
-                                    changedInGame: nil, unavailable: record?.unavailable ?? [],
-                                    frameGenOffByAnvil: record?.frameGenOffByAnvil ?? false, sharpenByAnvil: record?.sharpenByAnvil ?? false,
-                                    cameraBefore: record?.cameraBefore ?? [:], anvilFrameGen: anvilFrameGen, note: record?.note)
+                                    changedInGame: nil, unavailable: old?.unavailable ?? [],
+                                    frameGenOffByAnvil: old?.frameGenOffByAnvil ?? false, sharpenByAnvil: old?.sharpenByAnvil ?? false,
+                                    cameraBefore: old?.cameraBefore ?? [:], anvilFrameGen: anvilFrameGen, note: old?.note,
+                                    savedOptions: old?.savedOptions, version: recordVersion,
+                                    frameGenOnByAnvil: old?.frameGenOnByAnvil, frameGenLeftOff: old?.frameGenLeftOff,
+                                    frameGenRefusedWith: old?.frameGenRefusedWith)
                 }
             } else {
                 lines.append("its own upscaler: \(now.text) — none of DLSS, XeSS or FSR it has runs here")
@@ -334,13 +396,36 @@ enum GameUpscaler {
         }
 
         var r = record ?? Record(wrote: nil, choice: choice, quality: game.gameUpscalerQuality,
-                                 autoQuality: startQuality(tier), at: Date())
-        r.anvilFrameGen = anvilFrameGen
+                                 autoQuality: startQuality(tier), at: Date(), version: recordVersion)
         if !saves.isEmpty { r.savedOptions = true }
+        if fresh { lines.append("set up afresh for 0.63 — the game's own frame generation, from its motion vectors, is Automatic's now") }
 
-        // Its frame generation: never on top of Anvil's — frames made from frames it made itself warp. Turned on in
-        // its menu after Anvil turned it off, it's the player's: Anvil's stands down for that start instead.
-        if let fg = now.frameGen, anvilFrameGen {
+        // Its own frame generation, Automatic's where it has one: made from the game's own motion vectors and depth.
+        // Anvil's Smooth Motion stands down (the launch reads the file), and Anvil only takes the picture to the display.
+        if gamesFG, let ownFG = profile.ownFrameGen {
+            r.anvilFrameGen = true
+            if now.frameGen == nil {
+                keys.append((profile.frameGenKey, ownFG))
+                r.frameGenOnByAnvil = true
+                r.frameGenOffByAnvil = false
+                lines.append("its own frame generation on — \(profile.ownFrameGenTitle), made from the game's own motion vectors and depth, a frame between each two of its own; Anvil's Smooth Motion stands down and Anvil only takes the picture to the display")
+            } else if let fg = now.frameGen {
+                lines.append("its own frame generation (\(fg)) on, made from the game's own motion vectors and depth; Anvil's Smooth Motion stands down")
+            }
+        } else if game.gameFrameGen == .off {
+            r.anvilFrameGen = false
+            if let fg = now.frameGen {
+                keys.append((profile.frameGenKey, profile.frameGenOff))
+                lines.append("its own frame generation (\(fg)) off, and Anvil's — frame generation off, as chosen on its page")
+            }
+        } else {
+            r.anvilFrameGen = anvilFrameGen
+        }
+
+        // Its frame generation under Anvil's Smooth Motion: never on top of it — frames made from frames it made
+        // itself warp. Turned on in its menu after Anvil turned it off, it's the player's: Anvil's stands down for
+        // that start instead.
+        if !gamesFG, game.gameFrameGen != .off, let fg = now.frameGen, anvilFrameGen {
             if r.frameGenOffByAnvil {
                 lines.append("its own frame generation (\(fg)) switched on in its menu — Anvil's frame generation stays off for this start, so no frame is made from a made frame")
             } else {
@@ -509,6 +594,25 @@ enum GameUpscaler {
         guard let profile = profile(for: game), var r = record(for: game), let wrote = r.wrote,
               let now = inGame(game, in: container) else { return [] }
         var lines: [String] = []
+        // Its own frame generation, switched on by Anvil and off at the end: with an upscaler it can't pair it with,
+        // the game turns it off itself — another upscaler next time; with its own FSR, the player did.
+        if r.frameGenOnByAnvil == true, now.frameGen == nil {
+            if now.upscale == wrote, let brand = profile.reading(wrote)?.brand, brand != .fsr {
+                var refused = r.frameGenRefusedWith ?? []
+                if !refused.contains(brand) { refused.append(brand) }
+                r.frameGenRefusedWith = refused
+                r.wrote = nil
+                r.note = "The game turned its own frame generation off with \(brand.title). Its FSR 3 runs with it from its next start."
+                lines.append("its own frame generation: turned off by the game with \(brand.short) — its FSR 3 with it from its next start")
+                save(r, for: game)
+                return lines
+            } else {
+                r.frameGenLeftOff = true
+                r.frameGenOnByAnvil = nil
+                r.note = "Its own frame generation was switched off in its menu. Anvil's Smooth Motion runs instead; Set It Again on this page has it back."
+                lines.append("its own frame generation: switched off in its menu — left off; Anvil's Smooth Motion from its next start")
+            }
+        }
         if now.upscale != wrote {
             let brand = profile.reading(wrote)?.brand
             // DLSS asked for, and D3DMetal never showed the game an NVIDIA GPU: the game had no DLSS to offer.

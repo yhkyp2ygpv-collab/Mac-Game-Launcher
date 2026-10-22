@@ -7,7 +7,7 @@ Anvil fixes that. It installs and runs Windows games on Apple silicon Macs, then
 one while you play: sharper upscaling, extra frames in heavy scenes, even frame pacing,
 working controllers and surround sound.
 
-### [⬇ Download Anvil 0.62.0](https://github.com/yhkyp2ygpv-collab/Mac-Game-Launcher/releases/latest)
+### [⬇ Download Anvil 0.63.0](https://github.com/yhkyp2ygpv-collab/Mac-Game-Launcher/releases/latest)
 
 Free · Apple silicon (M1 or later) · macOS 14 Sonoma or newer · **Open source**
 
@@ -91,7 +91,7 @@ feedback form below.</sub>
 
 ## Install
 
-1. Download `Anvil-0.62.0.dmg` from
+1. Download `Anvil-0.63.0.dmg` from
    [Releases](https://github.com/yhkyp2ygpv-collab/Mac-Game-Launcher/releases/latest).
 2. Open it and drag **Anvil** into **Applications**.
 3. Open Anvil. If macOS says it "cannot verify" Anvil, go to
@@ -141,7 +141,16 @@ Please leave out personal details such as account names or email addresses.
   release lists the DMG's SHA-256, so you can check your download.
 - **No warranty.** Anvil is provided "as is"; see [LICENSE.txt](LICENSE.txt).
 
-## What's new in 0.62.0
+## What's new in 0.63.0
+
+- **Real frame generation.** Where a game has its own — AMD FSR 3's in Hogwarts Legacy, made from the game's own
+  motion vectors and depth — Anvil turns it on and steps its own Smooth Motion aside, taking the picture to the
+  display with FSR 1 alone. Hogwarts Legacy at Ultra on a base M4 averaged 67 fps this way, against 29–48 with Anvil's
+  own frame generation, which took 5–8 ms of every frame.
+- **Sharper over a game's own upscaler** (70% sharpening, the game's own back at its default).
+- **A memory check before a big game starts**, naming the apps using the most when the game won't fit in what's free.
+
+## In 0.62.0
 
 - **A game's own AI upscalers, chosen in Anvil.** For Hogwarts Legacy, pick **DLSS** or **Intel XeSS** on its
   Performance tab. DLSS's own network needs NVIDIA hardware, so Apple's D3DMetal runs it as **MetalFX**, Apple's
@@ -289,6 +298,7 @@ version number at the bottom of the sidebar.
 
 Older versions stay available in case a new one doesn't suit a game:
 
+- [Anvil 0.62.0 (legacy)](https://github.com/yhkyp2ygpv-collab/Mac-Game-Launcher/releases/tag/v0.62.0)
 - [Anvil 0.61.0 (legacy)](https://github.com/yhkyp2ygpv-collab/Mac-Game-Launcher/releases/tag/v0.61.0)
 - [Anvil 0.60.0 (legacy)](https://github.com/yhkyp2ygpv-collab/Mac-Game-Launcher/releases/tag/v0.60.0)
 - [Anvil 0.59.1 (legacy)](https://github.com/yhkyp2ygpv-collab/Mac-Game-Launcher/releases/tag/v0.59.1)

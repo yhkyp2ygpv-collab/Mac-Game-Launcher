@@ -31,6 +31,13 @@ struct GameUpscalerSection: View {
                         }
                     }
                 }
+                if profile.ownFrameGen != nil {
+                    Picker("Frame generation", selection: binding(\.gameFrameGen, game)) {
+                        Text("Automatic — the game's own (\(profile.ownFrameGenTitle))").tag(GameUpscaler.FrameGen.automatic)
+                        Text("Anvil's Smooth Motion").tag(GameUpscaler.FrameGen.anvil)
+                        Text("Off").tag(GameUpscaler.FrameGen.off)
+                    }
+                }
                 Toggle("Clean picture — film grain and colour fringing off", isOn: binding(\.cleanPicture, game))
                 if let inGame {
                     LabeledContent("In its settings now", value: inGame.text + (inGame.frameGen.map { " · its own frame generation on (\($0))" } ?? ""))
@@ -41,11 +48,14 @@ struct GameUpscalerSection: View {
                         .font(.caption).foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
-                if record?.changedInGame != nil, game.gameUpscaler != .asInGame {
+                if (record?.changedInGame != nil && game.gameUpscaler != .asInGame) || (record?.frameGenLeftOff == true && game.gameFrameGen == .automatic) {
                     Button("Set It Again at the Next Start") { setAgain(game) }
                         .controlSize(.small)
                 }
                 note("DLSS and XeSS are AI upscalers: the game draws part of its window and they fill in the rest from its last frames, moved by its own motion data, so edges come out clean where a plain stretch leaves them jagged. DLSS's own neural network needs NVIDIA's hardware, so on a Mac Apple's D3DMetal hands the same inputs to MetalFX, Apple's temporal upscaler, on the GPU's own path. XeSS runs Intel's network on any GPU, for some more GPU time a frame. Automatic picks DLSS where it runs here, then XeSS.")
+                if profile.ownFrameGen != nil {
+                    note("Frame generation on Automatic is the game's own: \(profile.ownFrameGenTitle), made from the game's own motion vectors and depth — what Anvil's Smooth Motion can only estimate from the finished pictures. Anvil's then stands down and only takes the picture to the display, a millisecond or so of the GPU's time a frame where Smooth Motion with FSR 3 took five to eight. In Hogwarts Legacy at Ultra on a base M4 (22 October): 67 fps on average with its own frame generation and its FSR 3 at Performance; 48 with Smooth Motion and DLSS at Performance.")
+                }
                 note("Quality on Automatic starts at \(GameUpscaler.startQuality(DeviceProfile.current?.tier).title) on this Mac and moves a step after a session that shows room for more, or too little: sharper where the game made well over what it needs even in its heaviest places, quicker where the GPU held it under. Its own frame generation is turned off while Anvil's is on — frames made from made frames warp — and its sharpening goes back to its default, as Anvil's FSR sharpens the picture to the display. Set before its next start; anything you change afterwards in the game's own menu stays as you set it.")
             } header: {
                 Text("The Game's Own Upscaler")
@@ -55,7 +65,10 @@ struct GameUpscalerSection: View {
     }
 
     private var automaticBrand: GameUpscaler.Brand? {
-        GameUpscaler.resolve(.automatic, available: available, unavailable: record?.unavailable ?? [])
+        guard let game, let profile = GameUpscaler.profile(for: game) else { return nil }
+        return GameUpscaler.resolve(.automatic, available: available, unavailable: record?.unavailable ?? [],
+                                    gamesFrameGen: GameUpscaler.usesGamesFrameGen(game, profile: profile, record: record),
+                                    frameGenRefusedWith: record?.frameGenRefusedWith ?? [])
     }
 
     private func choice(_ brand: GameUpscaler.Brand) -> GameUpscaler.Choice {
@@ -89,6 +102,7 @@ struct GameUpscalerSection: View {
         guard var r = record else { return }
         r.changedInGame = nil
         r.wrote = nil
+        r.frameGenLeftOff = nil
         GameUpscaler.save(r, for: game)
         record = r
     }

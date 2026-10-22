@@ -6,7 +6,7 @@ import Foundation
 /// always say exactly what it is — the point is to be able to tell whether the app
 /// in front of you includes a given fix.
 enum AnvilVersion {
-    static let current = "0.62.0"
+    static let current = "0.63.0"
     static let build = buildStamp
 
     /// Baked at compile time from the source's own modification date, so two builds
@@ -34,6 +34,25 @@ enum AnvilVersion {
     }
 
     static let releases: [Release] = [
+        Release(
+            version: "0.63.0",
+            date: "22 October 2026",
+            headline: "Real frame generation: a game's own, made from its motion vectors, chosen by Anvil where it has one — Hogwarts Legacy ran 67 fps on average at Ultra with it, where Anvil's own frame generation and upscaling took a fifth of every frame.",
+            fixed: [
+                "Hogwarts Legacy at Ultra on a base M4 ran 29–48 fps on average with Anvil's Smooth Motion: Anvil's FSR 3 and its frames between took 5–8 ms of every frame the game needed for its own, and in heavy places it made 18–30. With the game's own frame generation (AMD FSR 3's) and Anvil only taking the picture to the display, Anvil's part fell to 1.3 ms, and it ran 67 fps on average (22 October). That's Automatic's choice now.",
+                "Over a game's own frame generation, Anvil's FSR 3 ran on the frames it made as well as its own — twice the cost, and blending made frames into the picture. FSR 1 alone takes them to the display now.",
+                "Over a game's own upscaler, Anvil's sharpening was held to half strength; at its Performance quality the picture came out soft. 70% now, with the game's own sharpening at its default.",
+            ],
+            added: [
+                "Frame generation on The Game's Own Upscaler: Automatic — the game's own (AMD FSR 3's in Hogwarts Legacy), made from its motion vectors and depth — or Anvil's Smooth Motion, or off. With the game's own, the game's FSR 3 upscales with it: the pair seen working together. Choose DLSS and the game's frame generation goes with it too; if the game won't run them together, it turns its frame generation off, and Anvil uses its FSR 3 from the next start and says why.",
+                "Memory before a big game starts: when it took more last time than is free now, Anvil says so and names the apps using the most — for you to quit if you choose. Hogwarts Legacy takes up to 21 GB at Ultra; macOS swaps the rest to the SSD as it plays, felt as hitches.",
+                "Each game's settings set afresh once for 0.63: what was changed in its menu since 0.62 was trying for the same frame rate.",
+            ],
+            known: [
+                "An even 80 fps everywhere at Ultra isn't within a base M4's GPU in Hogwarts Legacy: in its heaviest places the game takes 25–35 ms a frame of its own, which frame generation doubles to 55–80. Anvil's Learn measured Effects at Ultra at about 2 ms a frame and Foliage about 1 ms; a step lower on those two is where frame rate comes cheapest.",
+                "Anvil can't keep a game in RAM that the Mac doesn't have room for: at 21 GB of 24, with other apps open, macOS swaps. Closing them, or Texture Quality a step lower, does.",
+                "DLSS (run by Apple's MetalFX) with the game's own frame generation isn't seen working together yet; Automatic pairs it with the game's FSR 3.",
+            ]),
         Release(
             version: "0.62.0",
             date: "22 October 2026",

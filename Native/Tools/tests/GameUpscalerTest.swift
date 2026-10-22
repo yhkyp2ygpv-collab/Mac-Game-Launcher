@@ -41,6 +41,9 @@ struct GameUpscalerTest {
         try? fm.copyItem(at: realIni, to: ini)
         let original = (try? String(contentsOf: ini, encoding: .utf8)) ?? ""
         var game = Game(title: "Hogwarts Legacy", executablePath: exe, containerID: c.id)
+        // The flow below is with Anvil's Smooth Motion chosen; the game's own frame generation (Automatic since 0.63)
+        // has its own part further on.
+        game.gameFrameGen = .anvil
 
         print("— its options save, read and written")
         guard let real = GameUpscaler.OptionsSave(realOptions) else { check(false, "its SavedUserOptions.sav read"); exit(1) }
@@ -188,6 +191,73 @@ struct GameUpscalerTest {
             check(wrote != nil && GameUpscaler.inGame(game, in: c)?.upscale == wrote && GameUpscaler.record(for: game)?.savedOptions == true
                   && (try? String(contentsOf: ini, encoding: .utf8))?.contains("UpscaleMode=\(wrote ?? "-")") == true,
                   "set again, in both: \(redo.first ?? "-")")
+        }
+
+        print("— the game's own frame generation (Automatic, 0.63)")
+        do {
+            var c2 = Container(name: "Hogwarts", runtimeID: "none")
+            c2.id = UUID()
+            let config2 = c2.driveC.appendingPathComponent("users/crossover/AppData/Local/Phoenix/Saved/Config/WindowsNoEditor", isDirectory: true)
+            let save2 = c2.driveC.appendingPathComponent("users/crossover/AppData/Local/Phoenix/Saved/SaveGames/2d99795513544c2cbdc588a08b453ac8", isDirectory: true)
+            try? fm.createDirectory(at: config2, withIntermediateDirectories: true)
+            try? fm.createDirectory(at: save2, withIntermediateDirectories: true)
+            let off = original.replacingOccurrences(of: #"FrameGeneration=(Mode=AMD_FFXFI,NumFramesInterpolated=1,LocStr="AMD_FFXFI_MODE_X2")"#,
+                                                    with: #"FrameGeneration=(Mode=Off,NumFramesInterpolated=0,LocStr="Off")"#)
+            let ini2 = config2.appendingPathComponent("GameUserSettings.ini"), opt2 = save2.appendingPathComponent("SavedUserOptions.sav")
+            try? Data(off.utf8).write(to: ini2)
+            try? real.replacing(text: off)?.write(to: opt2)
+            var g2 = Game(title: "Hogwarts Legacy", executablePath: exe, containerID: c2.id)
+            check(g2.gameFrameGen == .automatic, "Automatic by default")
+            let first = GameUpscaler.prepare(g2, in: c2, dlssReady: true, anvilFrameGen: true, anvilToDisplay: true, tier: .base)
+            first.forEach { print("     \($0)") }
+            let set = GameUpscaler.inGame(g2, in: c2)
+            check(set?.frameGen == "AMD_FFXFI" && set?.upscale == "AMD_FSR3_Balanced",
+                  "its own frame generation on, with its FSR 3 — the pair seen working: \(set?.frameGen ?? "-"), \(set?.upscale ?? "-")")
+            let iniText = (try? String(contentsOf: ini2, encoding: .utf8)) ?? ""
+            check(GameUpscaler.read(iniText, profile: profile).frameGen == "AMD_FFXFI", "in its ini as well as its options save")
+            check(first.contains { $0.contains("its own frame generation on — AMD FSR 3's frame generation") }, "and said so")
+            // DLSS chosen on its page, and the game won't pair it with DLSS: it turns it off itself.
+            g2.gameUpscaler = .dlss
+            _ = GameUpscaler.prepare(g2, in: c2, dlssReady: true, anvilFrameGen: true, anvilToDisplay: true, tier: .base)
+            check(GameUpscaler.inGame(g2, in: c2)?.upscale == "DLSS_Balanced" && GameUpscaler.inGame(g2, in: c2)?.frameGen == "AMD_FFXFI",
+                  "DLSS chosen: DLSS with its own frame generation")
+            func game2(_ change: (String) -> String) {
+                if let t = try? String(contentsOf: ini2, encoding: .utf8) { try? Data(change(t).utf8).write(to: ini2) }
+                if let o = GameUpscaler.OptionsSave(opt2) { try? o.replacing(text: change(o.text))?.write(to: opt2) }
+            }
+            game2 { $0.replacingOccurrences(of: #"FrameGeneration=(Mode=AMD_FFXFI,NumFramesInterpolated=1,LocStr="AMD_FFXFI_MODE_X2")"#,
+                                            with: #"FrameGeneration=(Mode=Off,NumFramesInterpolated=0,LocStr="Off")"#) }
+            let after = GameUpscaler.afterSession(g2, in: c2, play: [])
+            check(GameUpscaler.record(for: g2)?.frameGenRefusedWith == [.dlss] && after.first?.contains("turned off by the game with DLSS") == true,
+                  "turned off by the game with DLSS: not paired with it again (\(after.first ?? "-"))")
+            let back = GameUpscaler.prepare(g2, in: c2, dlssReady: true, anvilFrameGen: true, anvilToDisplay: true, tier: .base)
+            let next = GameUpscaler.inGame(g2, in: c2)
+            check(next?.upscale == "AMD_FSR3_Balanced" && next?.frameGen == "AMD_FFXFI"
+                  && back.first?.contains("the game doesn't run its own frame generation with DLSS") == true,
+                  "so its FSR 3 with it from the next start, and why: \(back.first ?? "-")")
+            g2.gameUpscaler = .automatic
+            // The player switches it off in its menu: left off, Anvil's Smooth Motion instead.
+            game2 { $0.replacingOccurrences(of: #"FrameGeneration=(Mode=AMD_FFXFI,NumFramesInterpolated=1,LocStr="AMD_FFXFI_MODE_X2")"#,
+                                            with: #"FrameGeneration=(Mode=Off,NumFramesInterpolated=0,LocStr="Off")"#) }
+            _ = GameUpscaler.afterSession(g2, in: c2, play: [])
+            let leftOff = GameUpscaler.prepare(g2, in: c2, dlssReady: true, anvilFrameGen: true, anvilToDisplay: true, tier: .base)
+            check(GameUpscaler.record(for: g2)?.frameGenLeftOff == true && GameUpscaler.inGame(g2, in: c2)?.frameGen == nil
+                  && !GameUpscaler.usesGamesFrameGen(g2, profile: profile, record: GameUpscaler.record(for: g2)),
+                  "switched off in its menu with its own FSR: left off, Anvil's Smooth Motion instead (\(leftOff.count) lines)")
+            // Off on the page: neither.
+            g2.gameFrameGen = .off
+            game2 { $0.replacingOccurrences(of: #"FrameGeneration=(Mode=Off,NumFramesInterpolated=0,LocStr="Off")"#,
+                                            with: #"FrameGeneration=(Mode=AMD_FFXFI,NumFramesInterpolated=1,LocStr="AMD_FFXFI_MODE_X2")"#) }
+            _ = GameUpscaler.prepare(g2, in: c2, dlssReady: true, anvilFrameGen: true, anvilToDisplay: true, tier: .base)
+            check(GameUpscaler.inGame(g2, in: c2)?.frameGen == nil && GameUpscaler.record(for: g2)?.anvilFrameGen == false, "Off: its own off too")
+            // A record from 0.62 with a choice "changed in its menu": set up afresh once.
+            var old = GameUpscaler.record(for: g2)!
+            old.version = nil; old.changedInGame = "AMD_FSR3_Balanced"; old.frameGenLeftOff = nil
+            GameUpscaler.save(old, for: g2)
+            g2.gameFrameGen = .automatic
+            let redo = GameUpscaler.prepare(g2, in: c2, dlssReady: true, anvilFrameGen: true, anvilToDisplay: true, tier: .base)
+            check(redo.contains { $0.contains("set up afresh") } && GameUpscaler.record(for: g2)?.version == GameUpscaler.recordVersion
+                  && GameUpscaler.inGame(g2, in: c2)?.frameGen == "AMD_FFXFI", "a 0.62 record: set up afresh once, its own frame generation on")
         }
 
         print("— a clean picture, and back")

@@ -74,6 +74,9 @@ struct Game: Identifiable, Codable, Hashable {
     var gameUpscalerQuality: UpscaleQuality?
     /// Its film grain and colour fringing off while Anvil upscales (GameUpscaler).
     var cleanPicture: Bool = true
+    /// Which frame generation it runs with, for a game whose settings Anvil knows: Automatic is the game's own where
+    /// it has one (GameUpscaler.FrameGen).
+    var gameFrameGen: GameUpscaler.FrameGen = .automatic
     /// Graphics Prep before a start that needs it: Anvil's FSR and frame generation compiled
     /// for this Mac and tested on its GPU at the game's size. See GraphicsPrep.
     var prepareGraphics: Bool = true

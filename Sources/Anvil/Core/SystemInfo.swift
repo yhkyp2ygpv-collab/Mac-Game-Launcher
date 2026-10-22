@@ -124,6 +124,32 @@ struct SystemInfo {
         return MemorySnapshot(totalMB: total, availableMB: available, swapUsedMB: swapMB)
     }
 
+    /// The apps using the most memory now, largest first, at least `atLeast` bytes each: each process's footprint,
+    /// its helpers' added to it ("Google Chrome Helper (Renderer)" is Google Chrome). Anvil, Wine and macOS's own are
+    /// left out. Processes of other users can't be read, and aren't counted.
+    static func largestApps(limit: Int = 3, atLeast: UInt64 = 1 << 30) -> [(name: String, bytes: UInt64)] {
+        var pids = [pid_t](repeating: 0, count: 4096)
+        let n = proc_listallpids(&pids, Int32(pids.count * MemoryLayout<pid_t>.size))
+        guard n > 0 else { return [] }
+        let skip: Set<String> = ["anvil", "kernel_task", "windowserver", "wineserver", "wine", "wine64", "wine-preloader",
+                                 "wine64-preloader", "launchd", "mds_stores", "loginwindow"]
+        var totals: [String: UInt64] = [:]
+        for pid in pids.prefix(Int(n)) where pid > 0 && pid != getpid() {
+            var info = rusage_info_v4()
+            let read = withUnsafeMutablePointer(to: &info) { p in
+                p.withMemoryRebound(to: rusage_info_t?.self, capacity: 1) { proc_pid_rusage(pid, RUSAGE_INFO_V4, $0) }
+            }
+            guard read == 0 else { continue }
+            var buffer = [CChar](repeating: 0, count: 256)
+            guard proc_name(pid, &buffer, 256) > 0 else { continue }
+            var name = String(cString: buffer)
+            if let helper = name.range(of: " Helper") { name = String(name[..<helper.lowerBound]) }
+            guard !skip.contains(name.lowercased()), !name.lowercased().hasSuffix(".exe") else { continue }
+            totals[name, default: 0] += info.ri_phys_footprint
+        }
+        return totals.filter { $0.value >= atLeast }.sorted { $0.value > $1.value }.prefix(limit).map { ($0.key, $0.value) }
+    }
+
     private static func sysctlString(_ name: String) -> String? {
         var size = 0
         guard sysctlbyname(name, nil, &size, nil, 0) == 0, size > 0 else { return nil }

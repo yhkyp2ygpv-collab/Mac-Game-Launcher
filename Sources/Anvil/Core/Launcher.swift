@@ -365,10 +365,12 @@ final class Launcher: ObservableObject {
                 // Over a game's own temporal upscaler, half strength at most: DLSS, XeSS and FSR hand over a picture
                 // already reconstructed, and RCAS at full strength on top of it is what made Hogwarts Legacy's edges
                 // grainy (21 October).
-                if let own = ownUpscaler, own.temporal, upscaler.sharpness > 0.5 {
-                    env["ANVIL_SHARPNESS"] = "0.50"
-                    AnvilLog.write(String(format: "  sharpening: %.0f%% over %@'s own %@ — half the %.0f%% set, so the picture isn't sharpened twice over",
-                                          50.0, game.title, own.brand?.short ?? "upscaler", upscaler.sharpness * 100))
+                // 0.63: at most 0.7, sharp enough that its picture holds its detail at the display's size (the player,
+                // 22 October: "it needs to be sharp"), with the game's own sharpening back at its default.
+                if let own = ownUpscaler, own.temporal, upscaler.sharpness > 0.7 {
+                    env["ANVIL_SHARPNESS"] = "0.70"
+                    AnvilLog.write(String(format: "  sharpening: %.0f%% over %@'s own %@ — of the %.0f%% set, so the picture isn't sharpened twice over",
+                                          70.0, game.title, own.brand?.short ?? "upscaler", upscaler.sharpness * 100))
                 }
                 // Graphics Prep's work for this game: Anvil's pipelines ready-made for this Mac's
                 // GPU, and FSR in one pass where that was measured quicker in its colour format.
@@ -397,7 +399,17 @@ final class Launcher: ObservableObject {
                 // FSR 3 for every game: Anvil's temporal FSR on top of it — wherever the game is
                 // upscaled, unless Graphics Prep's test at its sizes found FSR 1 better there; at
                 // the display's own size, only where the test found it better.
-                if upscaler.effectiveMode == .fsr3Every {
+                // The game making frames of its own: every other frame it hands over is a made one, and FSR 3's blend
+                // over them costs twice a real frame's time and smears them — FSR 1 alone takes the picture to the
+                // display. Hogwarts Legacy with AMD's frame generation: Anvil 1.3 ms of a 12 ms frame (22 October).
+                let gameMakesFrames = ownUpscaler?.frameGen != nil
+                if upscaler.effectiveMode == .fsr3Every && gameMakesFrames {
+                    env["ANVIL_FSR3"] = "0"
+                    env["ANVIL_FSR3_NATIVE"] = "0"
+                    env["ANVIL_OUTPUT"] = "1"
+                    AnvilLog.write("  FSR 3: off this start — \(game.title) makes frames of its own, so FSR 1 alone takes each to the display")
+                }
+                if upscaler.effectiveMode == .fsr3Every && !gameMakesFrames {
                     let verdict = GraphicsPrep.fsr3Verdict(gameID: game.id)
                     let use = verdict.use != false
                     let native = verdict.use == true && verdict.native
@@ -465,7 +477,9 @@ final class Launcher: ObservableObject {
                 // Never on top of the game's own: frames made from frames it made itself warp. Hogwarts Legacy had
                 // AMD's frame generation on in its menu and Anvil's as well on 21 October.
                 let gamesOwnFrames = ownUpscaler?.frameGen
-                let generate = upscaler.frameGeneration && !measuring && gamesOwnFrames == nil
+                // Frame generation off on its page (GameUpscaler.FrameGen.off): neither the game's nor Anvil's.
+                let fgOff = game.gameFrameGen == .off && GameUpscaler.profile(for: game) != nil
+                let generate = upscaler.frameGeneration && !measuring && gamesOwnFrames == nil && !fgOff
                 if upscaler.frameGeneration && measuring {
                     AnvilLog.write("  frame generation: off for Auto-Tune's quick test of \(game.title)'s own frames; on again after it")
                 } else if upscaler.frameGeneration, let theirs = gamesOwnFrames {
@@ -1039,6 +1053,29 @@ final class Launcher: ObservableObject {
         } else {
             AnvilLog.write("  saves: still being copied — finished beside the game")
             Task { AnvilLog.write("  " + (await saveBackup.value).logLine + " (finished after the start)") }
+        }
+        // Memory: the game's own share last time against what's free now. A game needing most of the Mac — Hogwarts
+        // Legacy at Ultra takes up to 21 GB of a 24 GB Mac — pushes everything else to the SSD as it plays, and the
+        // swapping is felt as hitches; the apps holding the most are named, for the player to close if they choose.
+        do {
+            let title = game.title
+            let check = await Task.detached(priority: .utility) { () -> (needs: Int64, free: Int64, apps: [(name: String, bytes: UInt64)])? in
+                guard let text = try? String(contentsOf: Self.gameLogURL, encoding: .utf8),
+                      let needs = FrameLog.peakMemory(of: title, text: text) else { return nil }
+                let free = MemoryWarmup.availableBytes()
+                guard needs + (1 << 30) > free else { return nil }
+                return (needs, free, SystemInfo.largestApps())
+            }.value
+            if let check {
+                let gb = { (b: Int64) in String(format: "%.1f GB", Double(b) / 1_073_741_824) }
+                let apps = check.apps.map { "\($0.name) \(gb(Int64($0.bytes)))" }.joined(separator: ", ")
+                let line = "memory: \(game.title) took up to \(gb(check.needs)) itself last time and \(gb(check.free)) is free — macOS will move memory to the SSD as it plays, and that's felt as hitches"
+                    + (apps.isEmpty ? "" : "; using the most now: \(apps)")
+                AnvilLog.write("  " + line)
+                append("\(game.title) took up to \(gb(check.needs)) of memory last time, and \(gb(check.free)) is free now, so macOS will swap to the SSD as it plays — felt as hitches."
+                       + (apps.isEmpty ? "" : " Using the most memory now: \(apps). Quitting them before playing keeps the game in RAM.")
+                       + " A step lower Texture Quality in its own settings frees the most memory and costs no frame rate.")
+            }
         }
         // The game's own heavy graphics options, for a game Anvil knows how to tune.
         // Before the game starts, because it reads its settings file once, at start.
