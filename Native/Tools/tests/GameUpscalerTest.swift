@@ -333,6 +333,122 @@ struct GameUpscalerTest {
             }
         }
 
+        print("— ray tracing from its own settings (0.65)")
+        do {
+            let h = profile
+            var c4 = Container(name: "Ray tracing", runtimeID: "none")
+            c4.id = UUID()
+            let config4 = c4.driveC.appendingPathComponent("users/crossover/AppData/Local/Phoenix/Saved/Config/WindowsNoEditor", isDirectory: true)
+            let save4 = c4.driveC.appendingPathComponent("users/crossover/AppData/Local/Phoenix/Saved/SaveGames/2d99795513544c2cbdc588a08b453ac8", isDirectory: true)
+            try? fm.createDirectory(at: config4, withIntermediateDirectories: true)
+            try? fm.createDirectory(at: save4, withIntermediateDirectories: true)
+            // As on 22 October: every ray-traced effect off, its ray-tracing quality at Low.
+            var start = GameUpscaler.setting(h.rayTracingSwitches.map { ($0.key, "False") } + [("NvidiaRayReconstruction", "False")], in: h.section, of: original)
+            start = GameUpscaler.setting(h.rayTracingGroups.map { ($0, "0") }, in: GameUpscaler.scalabilitySection, of: start)
+            let ini4 = config4.appendingPathComponent("GameUserSettings.ini"), opt4 = save4.appendingPathComponent("SavedUserOptions.sav")
+            try? Data(start.utf8).write(to: ini4)
+            try? real.replacing(text: start)?.write(to: opt4)
+            func now4() -> GameUpscaler.InGame? { GameUpscaler.read(GameUpscaler.OptionsSave(opt4)?.text ?? "", profile: h) }
+            func iniNow4() -> GameUpscaler.InGame { GameUpscaler.read((try? String(contentsOf: ini4, encoding: .utf8)) ?? "", profile: h) }
+            var g4 = Game(title: "Hogwarts Legacy", executablePath: exe, containerID: c4.id)
+            check(g4.gameRayTracing == .automatic && now4()?.rayTraced == [] && now4()?.rayReconstruction == false, "Automatic, and off in its menu")
+            let auto = GameUpscaler.prepare(g4, in: c4, dlssReady: true, anvilFrameGen: true, anvilToDisplay: true, tier: .base, dxr: true)
+            check(now4()?.rayTraced == [] && !auto.contains { $0.contains("ray tracing") }, "Automatic leaves them as in its menu: off, nothing said")
+            check(GameUpscaler.rayTracedParts(g4, in: c4, dxr: true) == [], "and nothing traced for Learn")
+
+            // Reflections chosen, with its FSR 3 and its own frame generation: the game's denoiser, at High.
+            g4.gameRayTracing = .reflections
+            let refl = GameUpscaler.prepare(g4, in: c4, dlssReady: true, anvilFrameGen: true, anvilToDisplay: true, tier: .base, dxr: true)
+            refl.forEach { print("     \($0)") }
+            let r4 = now4()
+            check(r4?.rayTraced == ["reflections"] && iniNow4().rayTraced == ["reflections"], "reflections on, in its options save and its ini")
+            check(r4?.rayReconstruction == false && refl.contains { $0.contains("the game's own denoiser") }, "with FSR 3: the game's own denoiser, said why")
+            let levels4 = Learn.scalability(in: GameUpscaler.OptionsSave(opt4)?.text ?? "")
+            check(h.rayTracingGroups.allSatisfy { levels4[$0] == 2 }, "its ray-tracing quality from Low to High")
+            check(GameUpscaler.rayTracedParts(g4, in: c4, dxr: true) == ["raytraced:reflections"] && GameUpscaler.rayTracedParts(g4, in: c4, dxr: false) == [],
+                  "Learn's part, only with D3DMetal offering ray tracing")
+
+            // DLSS chosen with them: Ray Reconstruction on — D3DMetal's MetalFX denoiser.
+            g4.gameUpscaler = .dlss
+            g4.gameRayTracing = .all
+            let all = GameUpscaler.prepare(g4, in: c4, dlssReady: true, anvilFrameGen: true, anvilToDisplay: true, tier: .base, dxr: true)
+            all.forEach { print("     \($0)") }
+            check(now4()?.brand == .dlss && now4()?.rayTraced == ["reflections", "shadows", "ao"] && now4()?.rayReconstruction == true
+                  && all.contains { $0.contains("Apple's MetalFX denoiser") }, "all three with DLSS: Ray Reconstruction on, run as Apple's MetalFX denoiser")
+
+            // Switched off in its menu: the player's, start after start, until the choice changes.
+            if let o = GameUpscaler.OptionsSave(opt4) {
+                try? o.replacing(text: GameUpscaler.setting([("bEnableRaytracingShadows", "False")], in: h.section, of: o.text))?.write(to: opt4)
+            }
+            let left = GameUpscaler.prepare(g4, in: c4, dlssReady: true, anvilFrameGen: true, anvilToDisplay: true, tier: .base, dxr: true)
+            let left2 = GameUpscaler.prepare(g4, in: c4, dlssReady: true, anvilFrameGen: true, anvilToDisplay: true, tier: .base, dxr: true)
+            check(now4()?.rayTraced == ["reflections", "ao"] && left.contains { $0.contains("as switched in its menu") }
+                  && left2.contains { $0.contains("as switched in its menu") }, "shadows switched off in its menu: left off, the next start too")
+            g4.gameRayTracing = .reflections
+            _ = GameUpscaler.prepare(g4, in: c4, dlssReady: true, anvilFrameGen: true, anvilToDisplay: true, tier: .base, dxr: true)
+            check(now4()?.rayTraced == ["reflections"], "a new choice on its page sets it again")
+
+            // Without D3DMetal's ray tracing at the start: not switched on, and said.
+            g4.gameRayTracing = .all
+            let noDXR = GameUpscaler.prepare(g4, in: c4, dlssReady: true, anvilFrameGen: true, anvilToDisplay: true, tier: .base, dxr: false)
+            check(now4()?.rayTraced == ["reflections"] && noDXR.contains { $0.contains("doesn't offer the game ray tracing") }, "no ray tracing offered: left, and said")
+            g4.gameRayTracing = .off
+            let off4 = GameUpscaler.prepare(g4, in: c4, dlssReady: true, anvilFrameGen: true, anvilToDisplay: true, tier: .base, dxr: true)
+            check(now4()?.rayTraced == [] && now4()?.rayReconstruction == false && off4.contains { $0.contains("off, as chosen on its page") }, "Off: all of them off, Ray Reconstruction too")
+
+            // The even 80 and Automatic's reflections.
+            check(GameUpscaler.tuneStep(at80: 0.5, seconds: 600, quality: .performance, graphics: ["sg.EffectsQuality": 3], lowered: [], set: [:], before: [:],
+                                        profile: h, rayTracing: (anvilOn: true, canAdd: false)) == .rayTracing(false), "short of 80 with Automatic's reflections on: off first")
+            check(GameUpscaler.tuneStep(at80: 0.97, seconds: 600, quality: .quality, graphics: ["sg.EffectsQuality": 3], lowered: [], set: [:], before: [:],
+                                        profile: h, rayTracing: (anvilOn: false, canAdd: true)) == .rayTracing(true), "plenty to spare at its sharpest, nothing lowered: reflections on")
+            check(GameUpscaler.tuneStep(at80: 0.97, seconds: 600, quality: .balanced, graphics: [:], lowered: [], set: [:], before: [:],
+                                        profile: h, rayTracing: (anvilOn: false, canAdd: true)) == .quality(.quality), "quality goes up before reflections")
+            check(GameUpscaler.tuneStep(at80: 0.97, seconds: 600, quality: .quality, graphics: [:], lowered: [], set: [:], before: [:],
+                                        profile: h, rayTracing: (anvilOn: false, canAdd: false)) == nil, "never where it can't trace (no hardware, or on in its menu)")
+            var g5 = g4; g5.gameRayTracing = .automatic
+            if var rec = GameUpscaler.record(for: g5) { rec.rayTracingByAnvil = true; GameUpscaler.save(rec, for: g5) }
+            let byAnvil = GameUpscaler.prepare(g5, in: c4, dlssReady: true, anvilFrameGen: true, anvilToDisplay: true, tier: .base, dxr: true)
+            check(now4()?.rayTraced == ["reflections"] && byAnvil.contains { $0.contains("Automatic's") }, "Automatic's reflections on, as the tuner left them")
+
+            // Learn: the ray-tracing groups count only in sessions that traced rays.
+            let untraced = LearnModel.features(["sg.EffectsQuality=3", "sg.RaytracingQuality=3", "sg.RaytracingReflectionsQuality=3"])
+            let traced = LearnModel.features(["sg.EffectsQuality=3", "sg.RaytracingQuality=3", "raytraced:reflections"])
+            check(untraced == ["sg.EffectsQuality": 3] && traced["sg.RaytracingQuality"] == 3 && traced["raytraced:reflections"] == 1,
+                  "Learn: ray-tracing quality ignored with nothing traced (\(untraced)), counted with reflections on")
+        }
+
+        print("— the memory it needs: the most of its recent sessions")
+        do {
+            func session(_ at: String, _ mb: Int) -> String {
+                "=== Hogwarts Legacy — \(at) — Anvil 0.64.0 ===\n12:00:00.000 [anvil] displayed 70.0 fps | 1% LOW 40.0 fps | rendered 70.0 fps (game could 70.0) | memory \(mb) MB | GPU 99% busy\n"
+            }
+            let log = session("2026-10-21T10:00:00Z", 21000) + session("2026-10-22T10:00:00Z", 19800) + session("2026-10-22T21:00:00Z", 11300)
+                + "=== LEGO® Star Wars™: The Skywalker Saga — 2026-10-22T22:00:00Z — Anvil 0.64.0 ===\n12:00:00.000 [anvil] displayed 120.0 fps | memory 6000 MB\n"
+            check(FrameLog.peakMemory(of: "Hogwarts Legacy", text: log) == Int64(21000 * 1_048_576), "three sessions back: 21000 MB, not the last one's 11300")
+            check(FrameLog.peakMemory(of: "Hogwarts Legacy", text: log, sessions: 2) == Int64(19800 * 1_048_576), "two: 19800")
+            check(FrameLog.peakMemory(of: "Hogwarts Legacy", text: log, sessions: 1) == Int64(11300 * 1_048_576), "the last alone: 11300")
+            check(FrameLog.peakMemory(of: "Cat Quest II", text: log) == nil, "a game never played: nothing")
+        }
+
+        print("— the Doctor: the game loading told from the game frozen (0.65)")
+        do {
+            let start = ISO8601DateFormatter().date(from: "2026-10-23T02:18:58Z")!
+            let local = DateFormatter(); local.dateFormat = "HH:mm:ss.SSS"
+            func at(_ s: Double) -> String { local.string(from: start.addingTimeInterval(s)) }
+            let game: [Substring] = [
+                "\(at(500)) [anvil] frames STOPPED: no frame for 1.5 s (after 32163 frames)",
+                "\(at(500.3)) [anvil] frames RESUMED after 1.8 s without a frame — 650.3 MB of its data read meanwhile",
+                "\(at(900)) [anvil] frames STOPPED: no frame for 1.5 s (after 52000 frames)",
+                "\(at(901)) [anvil] frames RESUMED after 2.5 s without a frame — 3.1 MB of its data read meanwhile",
+                "\(at(1200)) [anvil] frames STOPPED: no frame for 1.5 s (after 60000 frames)",
+                "\(at(1200.3)) [anvil] frames RESUMED after 1.8 s without a frame",
+            ]
+            let e = SessionEvidence(startedAt: start, gameLines: game, launchLines: [], windows: [], outcome: nil)
+            let f = GameDoctor.foregroundFreezes(e)
+            check(f.count == 3 && f[0].loading && f[0].readMB == 650.3 && !f[1].loading && f[1].seconds == 2.5 && f[2].readMB == nil && !f[2].loading,
+                  "650 MB read: loading; 3 MB: a freeze; a 0.64 line without it: counted as a freeze, as before (\(f))")
+        }
+
         print("— a clean picture, and back")
         game.cleanPicture = false
         let back = GameUpscaler.prepare(game, in: c, dlssReady: true, anvilFrameGen: true, anvilToDisplay: true, tier: .base)

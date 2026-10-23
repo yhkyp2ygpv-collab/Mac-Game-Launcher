@@ -121,7 +121,7 @@ enum MemoryWarmup {
             let budget = budget(availableBytes: free, onBattery: onBattery, gameNeeds: needs)
             guard budget > 0 else {
                 if let needs, needs + 2 * (1 << 30) > free {
-                    AnvilLog.write(String(format: "  memory warm-up: %@ — skipped: it took up to %.1f GB itself last time, and %.1f GB is free — data read ahead would only be pushed out again as it loads",
+                    AnvilLog.write(String(format: "  memory warm-up: %@ — skipped: it took up to %.1f GB itself in its recent sessions, and %.1f GB is free — data read ahead would only be pushed out again as it loads",
                                           title, Double(needs) / 1_073_741_824, Double(free) / 1_073_741_824))
                 } else {
                     AnvilLog.write("  memory warm-up: \(title) — skipped, the Mac has little memory to spare right now")

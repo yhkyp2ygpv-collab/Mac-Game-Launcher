@@ -73,6 +73,28 @@ enum GameUpscaler {
         var id: String { rawValue }
     }
 
+    /// A game's own ray-traced effects, for a game whose settings Anvil knows (Game.gameRayTracing).
+    ///
+    /// Traced by the GPU's ray-tracing hardware (M3 and later), which D3DMetal hands the game's DirectX ray tracing to.
+    /// With DLSS as its upscaler, NVIDIA's Ray Reconstruction — DLSS's own denoiser, which D3DMetal 3.0 runs as Apple's
+    /// MetalFX denoiser (MTLFXTemporalDenoisedScaler, read out of the framework) — cleans what a few rays a pixel
+    /// leave grainy; with FSR or XeSS, the game's own denoisers. Automatic leaves them as set in the game's menu, and
+    /// turns its reflections on only after a session with plenty to spare at an even 80 — off again first when one
+    /// falls short.
+    enum RayTracing: String, Codable, CaseIterable, Identifiable {
+        case automatic, reflections, all, off
+        var id: String { rawValue }
+        /// The effects it turns on; nil for as in the game's menu.
+        var effects: [String]? {
+            switch self {
+            case .automatic: nil
+            case .reflections: ["reflections"]
+            case .all: ["reflections", "shadows", "ao"]
+            case .off: []
+            }
+        }
+    }
+
     /// The qualities offered: how much of its window each way the game draws before its upscaler fills it in.
     static let qualities: [UpscaleQuality] = [.quality, .balanced, .performance]
 
@@ -114,6 +136,11 @@ enum GameUpscaler {
         /// distance, shading and the sky are what the picture is made of: none of those is on the list.
         let scalability: [String]
         let scalabilityFloor: Int
+        /// Its ray-traced effects' switches in its section, by effect ("reflections", "shadows", "ao"); its quality
+        /// groups for them; and its switch for NVIDIA's Ray Reconstruction.
+        var rayTracingSwitches: [(effect: String, key: String)] = []
+        var rayTracingGroups: [String] = []
+        var rayReconstructionKey: String? = nil
 
         func value(_ brand: Brand, _ quality: UpscaleQuality) -> String? {
             modes[brand]?.min { abs($0.scale - quality.renderScale) < abs($1.scale - quality.renderScale) }?.value
@@ -149,7 +176,12 @@ enum GameUpscaler {
         // Effects first: Learn measured it at 2.1–2.5 ms a frame at Ultra on a base M4 (22 October); then the fog and
         // light shafts, shadows, foliage (1.0–1.3 ms), and post-processing.
         scalability: ["sg.EffectsQuality", "sg.VolumetricsQuality", "sg.ShadowQuality", "sg.FoliageQuality", "sg.PostProcessQuality"],
-        scalabilityFloor: 2)
+        scalabilityFloor: 2,
+        // As its program names them (bInEnableRaytracingReflections…, SetNvidiaRayReconstruction).
+        rayTracingSwitches: [("reflections", "bEnableRaytracingReflections"), ("shadows", "bEnableRaytracingShadows"),
+                             ("ao", "bEnableRaytracingAO")],
+        rayTracingGroups: ["sg.RaytracingQuality", "sg.RaytracingReflectionsQuality", "sg.RaytracingShadowsQuality"],
+        rayReconstructionKey: "NvidiaRayReconstruction")
 
     static let profiles: [Profile] = [hogwarts]
 
@@ -183,6 +215,9 @@ enum GameUpscaler {
         var width: Int?
         var height: Int?
         var sharpen: String?
+        /// Its ray-traced effects switched on ("reflections"…), and Ray Reconstruction.
+        var rayTraced: [String] = []
+        var rayReconstruction = false
 
         /// "DLSS, run by Apple's MetalFX at Balanced (877 × 570 of its 1512 × 982 window)".
         var text: String {
@@ -214,7 +249,32 @@ enum GameUpscaler {
                       frameGen: fg,
                       width: value(profile.widthKey, in: profile.section, of: text).flatMap { Int($0) },
                       height: value(profile.heightKey, in: profile.section, of: text).flatMap { Int($0) },
-                      sharpen: value(profile.sharpenKey, in: profile.section, of: text))
+                      sharpen: value(profile.sharpenKey, in: profile.section, of: text),
+                      rayTraced: profile.rayTracingSwitches.filter { value($0.key, in: profile.section, of: text) == "True" }.map(\.effect),
+                      rayReconstruction: profile.rayReconstructionKey.map { value($0, in: profile.section, of: text) == "True" } ?? false)
+    }
+
+    /// Its ray-traced effects that run at a start, as Learn's parts ("raytraced:reflections"): those switched on in its
+    /// settings, when D3DMetal offers it ray tracing (`dxr`).
+    static func rayTracedParts(_ game: Game, in container: Container, dxr: Bool) -> [String] {
+        guard dxr, let now = inGame(game, in: container) else { return [] }
+        return now.rayTraced.map { Learn.rayTracedPrefix + $0 }
+    }
+
+    static func effectNames(_ effects: [String]) -> String {
+        let names = effects.map { e -> String in
+            switch e {
+            case "reflections": "reflections"
+            case "shadows": "shadows"
+            case "ao": "ambient occlusion"
+            default: e
+            }
+        }
+        switch names.count {
+        case 0: return "none"
+        case 1: return names[0]
+        default: return names.dropLast().joined(separator: ", ") + " and " + names.last!
+        }
     }
 
     /// What the game's file says now, for a game Anvil knows: read by a start's environment.
@@ -268,6 +328,12 @@ enum GameUpscaler {
         var graphicsBefore: [String: Int]? = nil
         /// Decided after a session, written at the next start: then what was set before tells a change in its menu.
         var graphicsNext: [String: Int]? = nil
+        /// Its ray-traced effects as Anvil last switched them (by key), for which choice; switched in its menu since,
+        /// they're the player's until the choice changes. Automatic's even 80 turned its reflections on.
+        var rayTracingWrote: [String: Bool]? = nil
+        var rayTracingChoice: RayTracing? = nil
+        var rayTracingByAnvil: Bool? = nil
+        var rayTracingLeft: Bool? = nil
     }
 
     /// 3 since 0.64: a record of 2 stepped Automatic's quality up from frames the game made between its own, counted
@@ -377,7 +443,7 @@ enum GameUpscaler {
     /// GameUserSettings.ini and, for a game that keeps its options in a save too, there as well (`OptionsSave`). The
     /// launch log's lines; none for a game Anvil doesn't know, or that hasn't written its settings yet.
     static func prepare(_ game: Game, in container: Container, dlssReady: Bool, anvilFrameGen: Bool, anvilToDisplay: Bool,
-                        tier: DeviceProfile.Tier?) -> [String] {
+                        tier: DeviceProfile.Tier?, dxr: Bool = false) -> [String] {
         guard let profile = profile(for: game), let file = settingsFile(for: game, in: container),
               let text = try? String(contentsOf: file, encoding: .utf8) else { return [] }
         let saves = optionsSaves(for: game, in: container, profile: profile).compactMap { OptionsSave($0) }
@@ -419,6 +485,8 @@ enum GameUpscaler {
         var lines: [String] = []
         let choice = game.gameUpscaler
         let sameChoice = record.map { $0.choice == choice && $0.quality == game.gameUpscalerQuality } ?? false
+        // The upscaler that runs this start: what Anvil sets, else what's in its menu (Ray Reconstruction needs DLSS).
+        var runs = now.brand
 
         // The upscaler.
         if choice == .asInGame {
@@ -434,6 +502,7 @@ enum GameUpscaler {
                 let auto = record?.autoQuality ?? startQuality(tier)
                 let quality = game.gameUpscalerQuality ?? auto
                 if let value = profile.value(brand, quality) {
+                    runs = brand
                     if now.upscale != value { keys += [(profile.upscaleKey, value), (profile.upscaleModifiedKey, "True")] }
                     let set = read(setting([(profile.upscaleKey, value)], in: profile.section, of: source), profile: profile)
                     var line = "its own upscaler: \(set.text)"
@@ -585,6 +654,15 @@ enum GameUpscaler {
             }
         }
 
+        // Its ray-traced effects, as chosen — and with DLSS, NVIDIA's Ray Reconstruction, which D3DMetal runs as Apple's
+        // MetalFX denoiser.
+        if !profile.rayTracingSwitches.isEmpty {
+            let rt = rayTracing(game, profile: profile, record: &r, now: now, levels: groups, runs: runs, dxr: dxr)
+            keys += rt.keys
+            groupKeys += rt.groups
+            lines += rt.lines
+        }
+
         // The same changes in each copy: the ini, and each options save.
         func applied(_ t: String) -> String {
             var out = keys.isEmpty ? t : setting(keys, in: profile.section, of: t)
@@ -612,6 +690,72 @@ enum GameUpscaler {
         }
         save(r, for: game)
         return lines
+    }
+
+    // MARK: Ray tracing
+
+    /// The settings for its ray-traced effects at a start: the switches, the quality groups when Anvil turns them on,
+    /// Ray Reconstruction with them under DLSS; and the log's lines.
+    ///
+    /// Turned on, the effects trace at High; with Ray Reconstruction at Medium — the denoiser is made to clean up a
+    /// few rays a pixel, and fewer rays leave the base M4's GPU, already 97–99% busy in Hogwarts Legacy at Ultra (22
+    /// October), the time it can. Switched in the game's menu after Anvil set them, they're the player's until the
+    /// choice on its page changes.
+    static func rayTracing(_ game: Game, profile: Profile, record r: inout Record, now: InGame, levels: [String: Int], runs: Brand?,
+                           dxr: Bool) -> (keys: [(String, String)], groups: [(String, String)], lines: [String]) {
+        var keys: [(String, String)] = [], groups: [(String, String)] = [], lines: [String] = []
+        let choice = game.gameRayTracing
+        // Switched in its menu since Anvil set them, for the same choice: left as they are, until the choice changes.
+        if r.rayTracingChoice != choice { r.rayTracingLeft = nil }
+        if r.rayTracingLeft != true, let wrote = r.rayTracingWrote, r.rayTracingChoice == choice {
+            let current = Dictionary(uniqueKeysWithValues: profile.rayTracingSwitches.map { ($0.key, now.rayTraced.contains($0.effect)) })
+            if wrote.contains(where: { current[$0.key] != $0.value }) {
+                r.rayTracingLeft = true
+                r.rayTracingByAnvil = nil
+            }
+        }
+        if r.rayTracingLeft == true {
+            r.rayTracingWrote = nil
+            lines.append("ray tracing: \(effectNames(now.rayTraced)) as switched in its menu — left as it is; choosing on its page sets it again")
+            return (keys, groups, lines)
+        }
+        let wanted: [String]? = choice == .automatic ? (r.rayTracingByAnvil == true ? ["reflections"] : nil) : choice.effects
+        guard let wanted else {
+            r.rayTracingWrote = nil
+            r.rayTracingChoice = choice
+            if !now.rayTraced.isEmpty {
+                lines.append("ray tracing: \(effectNames(now.rayTraced)) on, as set in its menu" + (dxr ? "" : " — but D3DMetal doesn't offer it ray tracing at this start (the Ray Tracing switch is off), so they don't run"))
+            }
+            return (keys, groups, lines)
+        }
+        if !wanted.isEmpty && !dxr {
+            lines.append("ray tracing: \(effectNames(wanted)) not switched on — D3DMetal doesn't offer the game ray tracing at this start (this Mac's GPU, or the Ray Tracing switch)")
+            return (keys, groups, lines)
+        }
+        var wrote: [String: Bool] = [:]
+        for (effect, key) in profile.rayTracingSwitches {
+            let on = wanted.contains(effect)
+            wrote[key] = on
+            if now.rayTraced.contains(effect) != on { keys.append((key, on ? "True" : "False")) }
+        }
+        let denoised = !wanted.isEmpty && runs == .dlss
+        if let rr = profile.rayReconstructionKey, now.rayReconstruction != denoised { keys.append((rr, denoised ? "True" : "False")) }
+        // From all off to on: its ray-tracing quality where it was below what Anvil traces at.
+        if !wanted.isEmpty, now.rayTraced.isEmpty {
+            let target = denoised ? 1 : 2
+            for g in profile.rayTracingGroups where (levels[g] ?? 0) < target { groups.append((g, String(target))) }
+        }
+        r.rayTracingWrote = wrote
+        r.rayTracingChoice = choice
+        if wanted.isEmpty {
+            if !now.rayTraced.isEmpty { lines.append("ray tracing: \(effectNames(now.rayTraced)) off" + (choice == .off ? ", as chosen on its page" : " — Automatic's reflections off again")) }
+        } else {
+            lines.append("ray tracing: \(effectNames(wanted)) on — traced by this Mac's ray-tracing hardware, "
+                         + (denoised ? "and cleaned by NVIDIA's Ray Reconstruction, which D3DMetal runs as Apple's MetalFX denoiser"
+                                     : "and cleaned by the game's own denoiser (Ray Reconstruction, Apple's MetalFX denoiser, needs DLSS as its upscaler)")
+                         + (choice == .automatic ? " — Automatic's: the last session had room for them" : ""))
+        }
+        return (keys, groups, lines)
     }
 
     // MARK: Its options save
@@ -756,7 +900,8 @@ enum GameUpscaler {
         let effective = (r.graphicsSet ?? [:]).merging(r.graphicsNext ?? [:]) { _, next in next }
         if let step = tuneStep(at80: at80.share, seconds: at80.seconds, quality: game.gameUpscalerQuality == nil ? r.autoQuality : nil,
                                graphics: game.gameGraphics == .automatic ? groups.merging(effective) { _, set in set } : nil,
-                               lowered: r.lowered ?? [], set: effective, before: r.graphicsBefore ?? [:], profile: profile) {
+                               lowered: r.lowered ?? [], set: effective, before: r.graphicsBefore ?? [:], profile: profile,
+                               rayTracing: rayTracingTuning(game, profile: profile, record: r, now: now)) {
             let held = String(format: "%.0f%% of its play at 80 fps or more", at80.share * 100)
             switch step {
             case .quality(let to):
@@ -776,6 +921,11 @@ enum GameUpscaler {
                 let list = changes.map { "\(groupName($0.key)) \(levelName($0.value))" }.joined(separator: ", ")
                 lines.append("graphics for an even 80: \(list) from its next start — \(held), short of the 80% it's held to")
                 r.note = "\(held) last session — \(list) from its next start, for an even 80. Exactly As Set in its menu keeps its own."
+            case .rayTracing(let on):
+                r.rayTracingByAnvil = on ? true : nil
+                lines.append(on ? "ray tracing: its reflections on from its next start — \(held), room to spare"
+                                : "ray tracing: its reflections off from its next start — \(held), short of the 80% it's held to")
+                r.note = "\(held) last session — ray-traced reflections \(on ? "on" : "off") from its next start."
             case .raise(let key, let value):
                 // Written at the next start, and let go of there once it's back at the player's own (prepare).
                 var next = r.graphicsNext ?? [:]
@@ -791,6 +941,14 @@ enum GameUpscaler {
         }
         save(r, for: game)
         return lines
+    }
+
+    /// For the tuner: Automatic's ray-traced reflections, whether on by Anvil, and whether they could be.
+    static func rayTracingTuning(_ game: Game, profile: Profile, record r: Record, now: InGame) -> (anvilOn: Bool, canAdd: Bool)? {
+        guard !profile.rayTracingSwitches.isEmpty, game.gameRayTracing == .automatic else { return nil }
+        let anvilOn = r.rayTracingByAnvil == true
+        let canAdd = !anvilOn && now.rayTraced.isEmpty && game.rayTracing != false && MetalCapability.current.hardwareRayTracing
+        return (anvilOn, canAdd)
     }
 
     /// How much of a session's play was shown at an even 80 or more — every frame shown, the game's made ones and
@@ -809,15 +967,22 @@ enum GameUpscaler {
         case quality(UpscaleQuality)
         case lower([String: Int])
         case raise(String, Int)
+        /// Automatic's ray-traced reflections on or off.
+        case rayTracing(Bool)
     }
 
     /// The next step for an even 80, from a session of five minutes or more: under 80% of it at 80 or more, quality to
     /// Performance first (where Automatic has it higher), then the next quality group on the profile's list a step
     /// lower — two when under half — never below its floor; 95% or more, the last group lowered a step back up, and
     /// with none lowered, quality a step sharper. `quality` and `graphics` are nil where the player chose them.
+    /// `rayTracing`, for Automatic's ray tracing: whether its reflections are on by Anvil, and whether they could be
+    /// (traced in hardware, offered by D3DMetal, off in its menu). Off is the first step down; on the last step up,
+    /// once quality is at its sharpest with nothing lowered.
     static func tuneStep(at80: Double, seconds: Double, quality: UpscaleQuality?, graphics: [String: Int]?, lowered: [String],
-                         set: [String: Int], before: [String: Int], profile: Profile) -> TuneStep? {
+                         set: [String: Int], before: [String: Int], profile: Profile,
+                         rayTracing: (anvilOn: Bool, canAdd: Bool)? = nil) -> TuneStep? {
         guard seconds >= 300 else { return nil }
+        if at80 < 0.80, rayTracing?.anvilOn == true { return .rayTracing(false) }
         if at80 < 0.80 {
             if let q = quality, let i = qualities.firstIndex(of: q), q != .performance, i + 1 < qualities.count {
                 return .quality(qualities[i + 1])
@@ -834,6 +999,7 @@ enum GameUpscaler {
         if at80 >= 0.95 {
             if graphics != nil, let key = lowered.last, let v = set[key], v < (before[key] ?? 3) { return .raise(key, v + 1) }
             if let q = quality, let i = qualities.firstIndex(of: q), i > 0 { return .quality(qualities[i - 1]) }
+            if let rt = rayTracing, !rt.anvilOn, rt.canAdd, lowered.isEmpty { return .rayTracing(true) }
         }
         return nil
     }

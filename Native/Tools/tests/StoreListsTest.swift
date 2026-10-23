@@ -122,7 +122,7 @@ import Foundation
         check(EpicLibrary.signInExpired(#"[cli] ERROR: Login failed, please run "legendary auth""#)
               && EpicLibrary.signInExpired("[Core] ERROR: Invalid refresh token")
               && !EpicLibrary.signInExpired("[cli] ERROR: Connection reset by peer"), "an expired sign-in told from a network fault")
-        check(EpicAccount.accountName(fromStatus: #"[cli] INFO: x"# + "\n" + #"{"account": "KillerJPat", "games_available": 209}"#) == "KillerJPat"
+        check(EpicAccount.accountName(fromStatus: #"[cli] INFO: x"# + "\n" + #"{"account": "SomePlayer", "games_available": 209}"#) == "SomePlayer"
               && EpicAccount.accountName(fromStatus: #"{"account": "<not logged in>"}"#) == nil, "the account's name from legendary's status")
 
         // 6. Covers kept small.

@@ -7,7 +7,7 @@ Anvil fixes that. It installs and runs Windows games on Apple silicon Macs, then
 one while you play: sharper upscaling, extra frames in heavy scenes, even frame pacing,
 working controllers and surround sound.
 
-### [⬇ Download Anvil 0.64.0](https://github.com/yhkyp2ygpv-collab/Mac-Game-Launcher/releases/latest)
+### [⬇ Download Anvil 0.65.0](https://github.com/yhkyp2ygpv-collab/Mac-Game-Launcher/releases/latest)
 
 Free · Apple silicon (M1 or later) · macOS 14 Sonoma or newer · **Open source**
 
@@ -91,7 +91,7 @@ feedback form below.</sub>
 
 ## Install
 
-1. Download `Anvil-0.64.0.dmg` from
+1. Download `Anvil-0.65.0.dmg` from
    [Releases](https://github.com/yhkyp2ygpv-collab/Mac-Game-Launcher/releases/latest).
 2. Open it and drag **Anvil** into **Applications**.
 3. Open Anvil. If macOS says it "cannot verify" Anvil, go to
@@ -141,7 +141,17 @@ Please leave out personal details such as account names or email addresses.
   release lists the DMG's SHA-256, so you can check your download.
 - **No warranty.** Anvil is provided "as is"; see [LICENSE.txt](LICENSE.txt).
 
-## What's new in 0.64.0
+## What's new in 0.65.0
+
+- **Ray tracing from a game's own settings.** For Hogwarts Legacy, choose Reflections, all three effects, or Off on its
+  page. It's traced by the GPU's ray-tracing hardware (M3 and later). With DLSS as the upscaler, Ray Reconstruction
+  cleans it up, and D3DMetal runs that as Apple's MetalFX denoiser. Automatic leaves it as set in the game's menu.
+- **No more background drain.** A game behind other apps drops to 10 fps after two minutes, and to 5 fps with the
+  screen locked or asleep. Before, it stayed at 30 fps for hours.
+- **Fixed:** the memory check now reads the game's last three sessions, not one. Loading pauses are reported apart
+  from freezes. Learn no longer misreads ray-tracing settings from sessions that didn't trace rays.
+
+## In 0.64.0
 
 - **Graphics for an even 80.** After each session that held 80 fps less than 80% of the time, Anvil lowers the setting
   that costs the most for the least to see — Effects, then fog, shadows, foliage, post-processing — a step at a time,
@@ -305,6 +315,7 @@ version number at the bottom of the sidebar.
 
 Older versions stay available in case a new one doesn't suit a game:
 
+- [Anvil 0.64.0 (legacy)](https://github.com/yhkyp2ygpv-collab/Mac-Game-Launcher/releases/tag/v0.64.0)
 - [Anvil 0.63.0 (legacy)](https://github.com/yhkyp2ygpv-collab/Mac-Game-Launcher/releases/tag/v0.63.0)
 - [Anvil 0.62.0 (legacy)](https://github.com/yhkyp2ygpv-collab/Mac-Game-Launcher/releases/tag/v0.62.0)
 - [Anvil 0.61.0 (legacy)](https://github.com/yhkyp2ygpv-collab/Mac-Game-Launcher/releases/tag/v0.61.0)

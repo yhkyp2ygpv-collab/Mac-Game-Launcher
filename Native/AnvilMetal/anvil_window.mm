@@ -7,6 +7,7 @@
 // GameTuning.fitDisplay). AppKit is reached through the runtime: libanvil is inserted into
 // every Wine process, and only the game's needs it.
 #import <AppKit/AppKit.h>
+#import <QuartzCore/QuartzCore.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -101,8 +102,26 @@ extern "C" void anvil_report_windows_later(void) {
 #include <unistd.h>
 
 static std::atomic<bool> g_inFront{true};
+// The screen locked, or the displays asleep: nobody is watching, whichever app is in front. On 22 October Hogwarts
+// Legacy drew 28 frames a second for three hours behind a locked screen, on battery.
+static std::atomic<bool> g_screenAway{false};
+// When the game last went behind another app (or the screen away), on CACurrentMediaTime's clock; 0 in front.
+static std::atomic<double> g_behindSince{0.0};
 
-extern "C" bool anvil_game_in_front(void) { return g_inFront.load(std::memory_order_relaxed); }
+extern "C" bool anvil_game_in_front(void) {
+    return g_inFront.load(std::memory_order_relaxed) && !g_screenAway.load(std::memory_order_relaxed);
+}
+extern "C" bool anvil_screen_away(void) { return g_screenAway.load(std::memory_order_relaxed); }
+/// How long the game has been behind another app or the screen away; 0 in front.
+extern "C" double anvil_behind_seconds(double now) {
+    const double since = g_behindSince.load(std::memory_order_relaxed);
+    return since > 0.0 && !anvil_game_in_front() ? now - since : 0.0;
+}
+
+static void noteBehind(void) {
+    if (anvil_game_in_front()) g_behindSince.store(0.0);
+    else if (g_behindSince.load() <= 0.0) g_behindSince.store(CACurrentMediaTime());
+}
 
 extern "C" const char* anvil_front_notify_name(void) {
     static char name[64] = "";
@@ -146,15 +165,45 @@ extern "C" void anvil_watch_front(void) {
         void (^changed)(bool) = ^(bool front) {
             if (g_inFront.exchange(front) == front) return;
             publishFront(front);
+            noteBehind();
             if (!path) return;
             if (FILE* out = fopen(path, "a")) {
                 fprintf(out, front ? "[anvil] back in front — full frame rate again\n"
-                                   : "[anvil] another app is in front — held to 30 fps until the game is back\n");
+                                   : "[anvil] another app is in front — held to 30 fps until the game is back (10 fps after two minutes)\n");
+                fclose(out);
+            }
+        };
+        void (^away)(bool) = ^(bool gone) {
+            if (g_screenAway.exchange(gone) == gone) return;
+            noteBehind();
+            if (!path) return;
+            if (FILE* out = fopen(path, "a")) {
+                fprintf(out, gone ? "[anvil] the screen is locked or asleep — the game held to 5 fps until it's back\n"
+                                  : "[anvil] the screen is back\n");
                 fclose(out);
             }
         };
         g_inFront.store(app.isActive);
         publishFront(app.isActive);
+        noteBehind();
+        // The screen locked and unlocked (loginwindow's own notices), and the displays asleep and awake (NSWorkspace's,
+        // by their values: AppKit isn't linked).
+        NSDistributedNotificationCenter* distributed = [NSDistributedNotificationCenter defaultCenter];
+        [distributed addObserverForName:@"com.apple.screenIsLocked" object:nil queue:[NSOperationQueue mainQueue]
+                             usingBlock:^(NSNotification*) { away(true); }];
+        [distributed addObserverForName:@"com.apple.screenIsUnlocked" object:nil queue:[NSOperationQueue mainQueue]
+                             usingBlock:^(NSNotification*) { away(false); }];
+        if (Class wsClass = NSClassFromString(@"NSWorkspace")) {
+            NSWorkspace* ws = [wsClass sharedWorkspace];
+            [ws.notificationCenter addObserverForName:@"NSWorkspaceScreensDidSleepNotification" object:nil
+                                                queue:[NSOperationQueue mainQueue] usingBlock:^(NSNotification*) { away(true); }];
+            [ws.notificationCenter addObserverForName:@"NSWorkspaceScreensDidWakeNotification" object:nil
+                                                queue:[NSOperationQueue mainQueue] usingBlock:^(NSNotification*) {
+                // Awake again, but maybe still locked: the unlock says so then.
+                NSDictionary* session = CFBridgingRelease(CGSessionCopyCurrentDictionary());
+                away([session[@"CGSSessionScreenIsLocked"] boolValue]);
+            }];
+        }
         NSNotificationCenter* centre = [NSNotificationCenter defaultCenter];
         // The notifications' names are their values; written out so AppKit needn't be linked.
         [centre addObserverForName:@"NSApplicationDidBecomeActiveNotification" object:nil

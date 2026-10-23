@@ -57,6 +57,8 @@ final class EpicLibrary: ObservableObject {
     @Published private(set) var stopped: [String: String] = [:]
     /// A refresh asked for offline, waiting for the connection.
     private var refreshWaiting = false
+    /// A failed read of the list was tried again once (`refresh`).
+    private var retried = false
     /// DLC downloads, by the DLC's app name: they go into their game's folder, so stopping one never deletes a folder.
     private var dlcApps: Set<String> = []
     /// Bumped as DLC finishes installing (or Epic's list is read again), so what shows a game's DLC reads it again.
@@ -131,10 +133,21 @@ final class EpicLibrary: ObservableObject {
                 AnvilLog.write("epic: list failed — Epic's sign-in has expired")
             } else {
                 lastError = owned.isEmpty ? "Epic's game list couldn't be read (\(status)). If this keeps happening, sign in to Epic again." : nil
-                AnvilLog.write("epic: list failed with \(status)")
+                // Why, in legendary's own words: on 23 October it failed with 1 two minutes after a game closed and the
+                // log couldn't say what Epic had answered. Read once more a minute later.
+                AnvilLog.write("epic: list failed with \(status)" + (Self.errorLine(output).map { " — \($0)" } ?? "")
+                               + (retried ? "" : "; trying again in a minute"))
+                if !retried {
+                    retried = true
+                    Task { @MainActor in
+                        try? await Task.sleep(for: .seconds(60))
+                        await EpicLibrary.shared.refresh()
+                    }
+                }
             }
             return
         }
+        retried = false
         owned = Self.parseOwned(data)
         updatedAt = Date()
         lastError = nil
@@ -151,6 +164,17 @@ final class EpicLibrary: ObservableObject {
                            + link.dlcToDownload.map(\.title).joined(separator: ", "))
         }
         if EpicAccount.shared.accountName == nil { await EpicAccount.shared.readAccountName() }
+    }
+
+    /// legendary's last error line, for the log: what Epic answered, with anything long enough to be a token or a code
+    /// left out.
+    nonisolated static func errorLine(_ output: String) -> String? {
+        let lines = output.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        guard let line = lines.last(where: { $0.contains("ERROR") || $0.contains("Error") || $0.contains("error") }) ?? lines.last else { return nil }
+        let words = line.split(separator: " ").map { word -> String in
+            word.filter { $0.isLetter || $0.isNumber }.count >= 24 ? "…" : String(word)
+        }
+        return String(words.joined(separator: " ").prefix(200))
     }
 
     /// legendary's words when the sign-in it has no longer works.

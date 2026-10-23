@@ -51,6 +51,8 @@ extern "C" void anvil_report_window_fit(void);
 extern "C" void anvil_report_windows_later(void);
 extern "C" void anvil_watch_front(void);
 extern "C" bool anvil_game_in_front(void);
+extern "C" bool anvil_screen_away(void);
+extern "C" double anvil_behind_seconds(double now);
 extern "C" void anvil_ensure_setup(const char* where);
 extern "C" void anvil_screens_offer(id<MTLCommandBuffer> cb, id<MTLTexture> frame);
 
@@ -891,6 +893,16 @@ std::atomic<uint64_t> g_notShown{0};
 /// Frames presented while another app was in front, and the rate they are held to then.
 std::atomic<uint64_t> g_behindFrames{0};
 constexpr double kBehindPeriod = 1.0 / 30.0;
+// Behind for two minutes — the game's loading done, Hogwarts Legacy's in 45 s and LEGO Star Wars' in 40 — 10 fps; with
+// the screen locked or asleep, 5. Hogwarts Legacy drew 28 fps for half an hour behind Chrome on 22 October and for
+// three hours behind a locked screen the night before, on battery.
+constexpr double kBehindLongAfter = 120.0, kBehindLongPeriod = 1.0 / 10.0, kAwayPeriod = 1.0 / 5.0;
+
+/// One frame in how long, behind another app: 30 a second, 10 after two minutes, 5 with nobody watching.
+double behindPeriod(double now) {
+    if (anvil_screen_away()) return kAwayPeriod;
+    return anvil_behind_seconds(now) >= kBehindLongAfter ? kBehindLongPeriod : kBehindPeriod;
+}
 double   g_ownEma       = 0.0;     // smoothed own frame time, for the pacing choice
 double   g_presentEma   = 0.0;     // smoothed time between the game's own presents
 // Generated frames are only considered below this on a variable-refresh panel. It was
@@ -4598,8 +4610,17 @@ void hookedPresentDrawable(id self, SEL _cmd, id drawable) {
     const bool inFront = anvil_game_in_front();
     if (!inFront && (d || handedOff)) {
         static double lastBehind = 0.0;
-        const double due = lastBehind + kBehindPeriod;
-        if (due > callAt && due < callAt + kBehindPeriod + 0.001) {
+        const double period = behindPeriod(callAt);
+        // Said once each time it moves down to 10 a second (5 is said as the screen goes).
+        static bool saidLong = false;
+        if (period == kBehindLongPeriod && !saidLong) {
+            saidLong = true;
+            diag("[anvil] behind other apps for two minutes — held to 10 fps until the game is back");
+        } else if (period == kBehindPeriod) {
+            saidLong = false;
+        }
+        const double due = lastBehind + period;
+        if (due > callAt && due < callAt + period + 0.001) {
             sleepUntil(due);
             g_hookWaitSec += CACurrentMediaTime() - callAt;
         }
@@ -5119,15 +5140,24 @@ void installPresentHook(id<MTLCommandQueue> queue) {
     // statistics after 5-15 seconds while the game kept handling input, which means it
     // had stopped drawing. This records exactly when that happens and for how long, so
     // it can be lined up with controller activity and with which app is in front.
+    // What the game read meanwhile is said as it resumes: Hogwarts Legacy's stops of 1.8 s on 22 October came with
+    // 300–900 MB of its data read in the same seconds — the game loading the next part of the castle, not a hang.
     std::thread([] {
         uint64_t seen = 0; double changedAt = CACurrentMediaTime(); bool stalled = false;
+        AnvilReadTotals before{};
         for (;;) {
             usleep(250000);
             const uint64_t n = g_frames.load(std::memory_order_relaxed);
             const double t = CACurrentMediaTime();
             if (n != seen) {
-                if (stalled) diag("[anvil] frames RESUMED after %.1f s without a frame", t - changedAt);
+                if (stalled) {
+                    AnvilReadTotals after;
+                    AnvilReadTotalsGet(&after);
+                    diag("[anvil] frames RESUMED after %.1f s without a frame — %.1f MB of its data read meanwhile",
+                         t - changedAt, (double)(after.bytes - before.bytes) / 1048576.0);
+                }
                 stalled = false; seen = n; changedAt = t;
+                AnvilReadTotalsGet(&before);
             } else if (!stalled && n > 120 && t - changedAt > 1.5) {
                 stalled = true;
                 diag("[anvil] frames STOPPED: no frame for %.1f s (after %llu frames)",

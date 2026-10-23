@@ -106,9 +106,17 @@ struct LearnModel: Codable {
         return (part, 1)
     }
 
+    /// Its ray-tracing quality groups count only in a session that traced rays (a "raytraced:" part): until 0.65 they
+    /// were learned from sessions with every ray-traced effect off, and Hogwarts Legacy's read as −0.8 ms a frame each
+    /// — the other settings changed alongside them, not anything they did.
     static func features(_ parts: [String]) -> [String: Double] {
         var out: [String: Double] = [:]
-        for p in parts { let f = feature(p); out[f.name, default: 0] += f.amount }
+        let traced = parts.contains { $0.hasPrefix(Learn.rayTracedPrefix) }
+        for p in parts {
+            let f = feature(p)
+            if !traced, f.name.hasPrefix("sg.Raytracing") { continue }
+            out[f.name, default: 0] += f.amount
+        }
         return out
     }
 
@@ -242,6 +250,9 @@ enum Learn {
 
     /// In a session's parts: the game made frames of its own between its own (GameUpscaler.FrameGen).
     static let gamesOwnFrames = "framegen:game"
+    /// In a session's parts: a ray-traced effect the game had on, with D3DMetal offering it ray tracing —
+    /// "raytraced:reflections" (GameUpscaler.rayTracedEffects).
+    static let rayTracedPrefix = "raytraced:"
 
     /// The line at the top of a session in game.log that says what it ran with.
     static func setupLine(_ parts: [String]) -> String {
@@ -261,6 +272,9 @@ enum Learn {
         case "level:full": return "the game's own look (Full)"
         case "reflections": return "its reflections"
         case "resolution:full": return "full resolution"
+        case "raytraced:reflections": return "ray-traced reflections"
+        case "raytraced:shadows": return "ray-traced shadows"
+        case "raytraced:ao": return "ray-traced ambient occlusion"
         default:
             let name = f.name.hasPrefix("sg.") ? String(f.name.dropFirst(3)) : f.name
             return name.replacingOccurrences(of: "Quality", with: " quality")

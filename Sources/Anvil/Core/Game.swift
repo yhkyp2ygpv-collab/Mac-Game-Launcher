@@ -80,6 +80,9 @@ struct Game: Identifiable, Codable, Hashable {
     /// Its own quality settings, for a game whose settings Anvil knows: for an even 80 (Automatic), or exactly as set
     /// in its menu (GameUpscaler.Graphics).
     var gameGraphics: GameUpscaler.Graphics = .automatic
+    /// Its own ray-traced effects, for a game whose settings Anvil knows: as in its menu (Automatic, which turns its
+    /// reflections on when an even 80 has room for them), its reflections, all of them, or none (GameUpscaler.RayTracing).
+    var gameRayTracing: GameUpscaler.RayTracing = .automatic
     /// Graphics Prep before a start that needs it: Anvil's FSR and frame generation compiled
     /// for this Mac and tested on its GPU at the game's size. See GraphicsPrep.
     var prepareGraphics: Bool = true

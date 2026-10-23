@@ -18,7 +18,7 @@ struct FrameWindow: Codable, Hashable {
     var latencyMs: Double?
     var gpuBusy: Int?
     var topThread: Int?
-    /// Frames of the stretch drawn while another app was in front, held to 30 fps.
+    /// Frames of the stretch drawn while another app was in front, held to 30 fps (10 after two minutes, 5 with the screen locked).
     var behind: Int?
     /// Share of the frames shown that Anvil generated; `displayed` is already the game's
     /// own frames alone.
@@ -76,10 +76,20 @@ enum FrameLog {
         return Session(startedAt: date, windows: windows)
     }
 
-    /// The most memory the game used in its last session in `text` (game.log), in bytes — what it needs again.
-    static func peakMemory(of title: String, text: String) -> Int64? {
-        guard let mb = lastSession(of: title, text: text)?.windows.compactMap(\.memoryMB).max(), mb > 0 else { return nil }
-        return Int64(mb * 1_048_576)
+    /// The most memory the game used in its last `sessions` sessions in `text` (game.log), in bytes — what it needs
+    /// again. More than the last alone: Hogwarts Legacy took 11.3 GB in seven minutes on 22 October and 19.8 GB in its
+    /// next session, the one the memory check had read as needing 11.
+    static func peakMemory(of title: String, text: String, sessions: Int = 3) -> Int64? {
+        var rest = Substring(text)
+        var peak = 0.0
+        for _ in 0..<max(sessions, 1) {
+            guard let header = rest.range(of: "=== \(title) — ", options: .backwards) else { break }
+            if let mb = lastSession(of: title, text: String(rest[header.lowerBound...]))?.windows.compactMap(\.memoryMB).max() {
+                peak = max(peak, mb)
+            }
+            rest = rest[..<header.lowerBound]
+        }
+        return peak > 0 ? Int64(peak * 1_048_576) : nil
     }
 
     /// One statistics line, or nil for any other line.

@@ -532,12 +532,25 @@ enum GameDoctor {
 
         // Freezes with the game in front: a stop the player saw, not the game pausing
         // itself in the background.
-        let freezes = foregroundFreezes(e)
+        // Those that came with hundreds of megabytes of its data read are the game loading the next part of its world:
+        // said apart, as what they are.
+        let allFreezes = foregroundFreezes(e)
+        let freezes = allFreezes.filter { !$0.loading }, loads = allFreezes.filter(\.loading)
+        // Every thread's stack is recorded only with ANVIL_CAPTURE_STALLS=1 (off since 0.13.1: it caused hitches of its own).
+        let recorded = game.contains { $0.contains("[anvil] recording what every thread is doing to") }
         if !freezes.isEmpty {
-            let longest = freezes.max() ?? 0
+            let longest = freezes.map(\.seconds).max() ?? 0
             add("freezes", .problem, "The game froze \(freezes.count == 1 ? "once" : "\(freezes.count) times")",
-                String(format: "The picture stopped for %.1f s at the longest while the game was in front.", longest)
-                + " Anvil records what every thread was doing during the first freezes of a session, in Stalls beside the logs.")
+                String(format: "The picture stopped for %.1f s at the longest while the game was in front", longest)
+                + (freezes.contains { $0.readMB != nil } ? ", with little of its data being read — not loading." : ".")
+                + (recorded ? " What every thread was doing during the first is in Stalls beside the logs." : ""))
+        }
+        if !loads.isEmpty {
+            let longest = loads.map(\.seconds).max() ?? 0
+            let read = loads.compactMap(\.readMB).reduce(0, +)
+            add("loading-pauses", .advice, "Paused while loading",
+                String(format: "The picture stopped %d time%@ for up to %.1f s while the game loaded the next part of its world — %.0f MB of its data read in those seconds. That's the game's own loading, as it does at doors and on arriving somewhere; it comes off the SSD at its full speed, and goes quicker with memory free for it to keep what it has read.",
+                       loads.count, loads.count == 1 ? "" : "s", longest, read))
         }
 
         // Frame pacing that kept changing its mind.
@@ -634,7 +647,8 @@ enum GameDoctor {
             if let t = e.loadEstimate, let front, front > max(2.5 * t.typical, 60) {
                 detail += " That was well past its usual time in front, so something held it up"
                     + (heldOffline ? " even with its connections held back for an offline start." : ".")
-                    + " Anvil records what every thread was doing when a game stalls, in Stalls beside the logs."
+                    + (game.contains { $0.contains("[anvil] recording what every thread is doing to") }
+                       ? " What every thread was doing then is in Stalls beside the logs." : "")
             }
             add("closed-loading", .advice, "\(c.title) was closed while still loading", detail)
         }
@@ -875,12 +889,22 @@ enum GameDoctor {
         return all > 0 && Double(early) / Double(all) > 0.6
     }
 
-    /// Lengths of the freezes game.log recorded while the game was the app in front.
+    /// A stop of the picture: how long, and how much of its data the game read meanwhile (nil in logs from before
+    /// 0.65, which didn't say).
+    struct Freeze: Equatable {
+        var seconds: Double
+        var readMB: Double?
+        /// Hundreds of megabytes read in the same seconds: the game loading the next part of its world. Hogwarts
+        /// Legacy's stops of 1.8 s on 22 October came with 300–900 MB read — at doors, into the next part of the castle.
+        var loading: Bool { (readMB ?? 0) >= 100 }
+    }
+
+    /// The freezes game.log recorded while the game was the app in front.
     ///
     /// game.log stamps lines with the local time of day; anvil.log records every change
     /// of the app in front, in UTC. A stop that began after another app came to the front
     /// is the game pausing itself — LEGO Star Wars does when it loses focus — not a freeze.
-    static func foregroundFreezes(_ e: SessionEvidence) -> [Double] {
+    static func foregroundFreezes(_ e: SessionEvidence) -> [Freeze] {
         guard let start = e.startedAt else { return [] }
         let iso = ISO8601DateFormatter()
         var focus: [(Date, Bool)] = []
@@ -903,7 +927,7 @@ enum GameDoctor {
         func inFront(_ at: Date) -> Bool {
             focus.last(where: { $0.0 <= at })?.1 ?? true
         }
-        var out: [Double] = []
+        var out: [Freeze] = []
         var stoppedAt: Date?
         for line in e.gameLines {
             if line.contains("[anvil] frames STOPPED") {
@@ -912,7 +936,11 @@ enum GameDoctor {
                       let r = line.range(of: "RESUMED after "), let end = line.range(of: " s", range: r.upperBound..<line.endIndex),
                       let seconds = Double(line[r.upperBound..<end.lowerBound]) {
                 if let at = stoppedAt, inFront(at), !focus.contains(where: { $0.0 > at && $0.0 < at.addingTimeInterval(seconds) && !$0.1 }) {
-                    out.append(seconds)
+                    var mb: Double?
+                    if let m = line.range(of: " — "), let unit = line.range(of: " MB of its data read", range: m.upperBound..<line.endIndex) {
+                        mb = Double(line[m.upperBound..<unit.lowerBound])
+                    }
+                    out.append(Freeze(seconds: seconds, readMB: mb))
                 }
                 stoppedAt = nil
             }

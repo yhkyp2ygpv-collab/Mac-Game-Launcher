@@ -1054,7 +1054,7 @@ final class Launcher: ObservableObject {
             AnvilLog.write("  saves: still being copied — finished beside the game")
             Task { AnvilLog.write("  " + (await saveBackup.value).logLine + " (finished after the start)") }
         }
-        // Memory: the game's own share last time against what's free now. A game needing most of the Mac — Hogwarts
+        // Memory: the game's own share in its recent sessions against what's free now. A game needing most of the Mac — Hogwarts
         // Legacy at Ultra takes up to 21 GB of a 24 GB Mac — pushes everything else to the SSD as it plays, and the
         // swapping is felt as hitches; the apps holding the most are named, for the player to close if they choose.
         do {
@@ -1069,10 +1069,10 @@ final class Launcher: ObservableObject {
             if let check {
                 let gb = { (b: Int64) in String(format: "%.1f GB", Double(b) / 1_073_741_824) }
                 let apps = check.apps.map { "\($0.name) \(gb(Int64($0.bytes)))" }.joined(separator: ", ")
-                let line = "memory: \(game.title) took up to \(gb(check.needs)) itself last time and \(gb(check.free)) is free — macOS will move memory to the SSD as it plays, and that's felt as hitches"
+                let line = "memory: \(game.title) took up to \(gb(check.needs)) itself in its recent sessions and \(gb(check.free)) is free — macOS will move memory to the SSD as it plays, and that's felt as hitches"
                     + (apps.isEmpty ? "" : "; using the most now: \(apps)")
                 AnvilLog.write("  " + line)
-                append("\(game.title) took up to \(gb(check.needs)) of memory last time, and \(gb(check.free)) is free now, so macOS will swap to the SSD as it plays — felt as hitches."
+                append("\(game.title) took up to \(gb(check.needs)) of memory in its recent sessions, and \(gb(check.free)) is free now, so macOS will swap to the SSD as it plays — felt as hitches."
                        + (apps.isEmpty ? "" : " Using the most memory now: \(apps). Quitting them before playing keeps the game in RAM.")
                        + " A step lower Texture Quality in its own settings frees the most memory and costs no frame rate.")
             }
@@ -1126,7 +1126,7 @@ final class Launcher: ObservableObject {
            !game.arguments.contains(where: { $0.caseInsensitiveCompare(keep) == .orderedSame }) {
             signIn.append(keep)
             runsBehind.insert(game.id)
-            AnvilLog.write("  behind other apps: keeps running (its own \(keep) switch), so loading carries on while another app is in front — held to 30 fps until it's back")
+            AnvilLog.write("  behind other apps: keeps running (its own \(keep) switch), so loading carries on while another app is in front — held to 30 fps until it's back, 10 after two minutes, 5 with the screen locked")
         }
         do {
             let up = game.upscalerOverride ?? container.upscaler
@@ -1167,7 +1167,8 @@ final class Launcher: ObservableObject {
             for line in GameUpscaler.prepare(game, in: container, dlssReady: dlssReady,
                                              anvilFrameGen: ours && up.frameGeneration && !measuring,
                                              anvilToDisplay: ours && (up.fsrToDisplay || up.effectiveMode == .fsr3Every),
-                                             tier: DeviceProfile.current?.tier) {
+                                             tier: DeviceProfile.current?.tier,
+                                             dxr: Self.rayTracing(for: game, container: container).on) {
                 AnvilLog.write("  \(game.title): " + line)
             }
         }
@@ -1210,6 +1211,8 @@ final class Launcher: ObservableObject {
         // generation, which doubles what's presented — Learn counts the game's own frames from it.
         var learnParts = LearnStore.parts(for: tuned, in: container, level: level)
         if GameUpscaler.inGame(game, in: container)?.frameGen != nil { learnParts.append(Learn.gamesOwnFrames) }
+        // And its ray-traced effects that run, for their cost to be learned apart from the quality groups.
+        learnParts += GameUpscaler.rayTracedParts(game, in: container, dxr: Self.rayTracing(for: game, container: container).on)
         appendGameLog(Learn.setupLine(learnParts))
         let logStart = (try? FileManager.default.attributesOfItem(atPath: Self.gameLogURL.path))?[.size] as? UInt64 ?? 0
         if let line = tuning.logLine {
@@ -1667,6 +1670,16 @@ final class Launcher: ObservableObject {
         guard analysis?.primary == .d3d12 || analysis?.apis.contains(.d3d12) == true else { return (container.raytracing, nil) }
         let offers = GameAnalysis.offersRayTracing(executable: game.executableURL)
         let hardware = MetalCapability.current.hardwareRayTracing
+        // Its ray-traced effects chosen on its page (GameUpscaler.RayTracing), or Automatic's reflections on: offered,
+        // where the GPU traces rays in hardware.
+        if let profile = GameUpscaler.profile(for: game), !profile.rayTracingSwitches.isEmpty, hardware {
+            let effects = game.gameRayTracing.effects
+                ?? (GameUpscaler.record(for: game)?.rayTracingByAnvil == true ? ["reflections"] : nil)
+            if let effects, !effects.isEmpty {
+                return (true, "ray tracing: on — its ray-traced \(GameUpscaler.effectNames(effects)) "
+                              + (game.gameRayTracing == .automatic ? "on for an even 80 with room to spare" : "chosen on its page"))
+            }
+        }
         if let chosen = game.rayTracing {
             return (chosen, "ray tracing: \(chosen ? "on" : "off"), as chosen for \(game.title)")
         }

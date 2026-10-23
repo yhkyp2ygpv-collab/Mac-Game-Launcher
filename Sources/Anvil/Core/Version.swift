@@ -6,7 +6,7 @@ import Foundation
 /// always say exactly what it is — the point is to be able to tell whether the app
 /// in front of you includes a given fix.
 enum AnvilVersion {
-    static let current = "0.64.0"
+    static let current = "0.65.0"
     static let build = buildStamp
 
     /// Baked at compile time from the source's own modification date, so two builds
@@ -34,6 +34,27 @@ enum AnvilVersion {
     }
 
     static let releases: [Release] = [
+        Release(
+            version: "0.65.0",
+            date: "23 October 2026",
+            headline: "Ray tracing from a game's own settings, traced by the M4's ray-tracing hardware — and with DLSS, cleaned by Ray Reconstruction, which D3DMetal runs as Apple's MetalFX denoiser — and a game left behind other apps or a locked screen no longer drawing at 30 fps for hours.",
+            fixed: [
+                "A game behind other apps was held to 30 fps for as long as it stayed there: Hogwarts Legacy drew 28 fps for half an hour behind Chrome on 22 October, and for three hours behind a locked screen the night before, on battery. 30 fps for its first two minutes behind, so its loading carries on; then 10; and 5 with the screen locked or asleep.",
+                "The memory check before a start read only the game's last session: Hogwarts Legacy's seven minutes at 11.3 GB stood for a game that took 19.8 GB in its next. It takes the most of its last three sessions now.",
+                "The Doctor counted the game loading the next part of its world as freezes — Hogwarts Legacy's stops of 1.8 s came with 300–900 MB of its data read in the same seconds, at doors into another part of the castle. They're said apart now, as loading, with what was read; and it no longer points to thread recordings in Stalls, which Anvil makes only when asked to.",
+                "Learn read Hogwarts Legacy's ray-tracing quality settings as costing −0.8 ms a frame each, from sessions with every ray-traced effect off: what changed alongside them, not anything they did. They count only in sessions that traced rays now.",
+                "When Epic's game list couldn't be read, the log didn't say why. It gives Epic's own answer now (with anything like a code left out), and reads the list again a minute later.",
+            ],
+            added: [
+                "Ray tracing on The Game's Own Upscaler: Automatic, Reflections, Reflections, shadows and ambient occlusion, or Off — set in the game's own settings before it starts, with D3DMetal's ray tracing on for it. With DLSS as its upscaler, NVIDIA's Ray Reconstruction cleans what a few rays a pixel leave grainy, run as Apple's MetalFX denoiser, and the effects trace at Medium; with FSR 3 or XeSS, the game's own denoisers, at High. Switched in its menu afterwards, it stays as switched.",
+                "Automatic leaves ray tracing as set in the game's menu, and for an even 80 turns its reflections on only after a session that held 80 fps for 95% of it at its sharpest, with nothing lowered — and off again first when one falls short.",
+                "What ray tracing costs is learned from each session that traces rays, effect by effect, and shown with the rest of the game's settings.",
+            ],
+            known: [
+                "Ray tracing costs frame rate: in Hogwarts Legacy at Ultra a base M4's GPU is already 97–99% busy, its heavy scenes 21 ms a frame. With reflections on, Graphics for an even 80 lowers the costliest settings further to make room; what they cost here, the first sessions with them will say.",
+                "Hogwarts Legacy doesn't offer NVIDIA's frame generation here, so Apple's MetalFX frame interpolation through it isn't available to it; its own AMD FSR 3 frame generation stays Automatic's.",
+                "Its stutters in fights and in the open world are the game's own work — 374 of 409 in 86 minutes on 22 October, against 30 from reading its data and 4 from compiling shaders, whose cache is complete. Fewer come with fewer of the costliest effects, which Graphics for an even 80 steps down: Effects and Fog and light shafts a step lower from its next start.",
+            ]),
         Release(
             version: "0.64.0",
             date: "22 October 2026",
