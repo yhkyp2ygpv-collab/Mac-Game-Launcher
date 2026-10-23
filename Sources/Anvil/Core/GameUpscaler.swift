@@ -63,6 +63,16 @@ enum GameUpscaler {
         var id: String { rawValue }
     }
 
+    /// How a game's own quality settings are kept, for a game whose settings Anvil knows (Game.gameGraphics).
+    ///
+    /// For an even 80: after each session that held 80 fps or more less than 80% of the time, the setting that costs
+    /// the most frame time for the least to see goes a step lower — never below High, its textures never — and after
+    /// one with plenty to spare the last one lowered goes back up. As set: exactly as in the game's menu.
+    enum Graphics: String, Codable, CaseIterable, Identifiable {
+        case automatic, asSet
+        var id: String { rawValue }
+    }
+
     /// The qualities offered: how much of its window each way the game draws before its upscaler fills it in.
     static let qualities: [UpscaleQuality] = [.quality, .balanced, .performance]
 
@@ -99,6 +109,11 @@ enum GameUpscaler {
         /// Its own frame generation, as it writes it on, and in words.
         let ownFrameGen: String?
         let ownFrameGenTitle: String
+        /// Its quality groups (Unreal's [ScalabilityGroups]) in the order an even 80 lowers them — the most frame time
+        /// for the least to see first — and the lowest any goes (2, High). Textures cost memory, not frame time; view
+        /// distance, shading and the sky are what the picture is made of: none of those is on the list.
+        let scalability: [String]
+        let scalabilityFloor: Int
 
         func value(_ brand: Brand, _ quality: UpscaleQuality) -> String? {
             modes[brand]?.min { abs($0.scale - quality.renderScale) < abs($1.scale - quality.renderScale) }?.value
@@ -130,7 +145,11 @@ enum GameUpscaler {
         cameraKey: "CameraSettings", cleanOff: ["bFilmGrain", "bChromaticAberration"],
         widthKey: "ResolutionSizeX", heightKey: "ResolutionSizeY", optionsSave: "SavedUserOptions.sav",
         ownFrameGen: #"(Mode=AMD_FFXFI,NumFramesInterpolated=1,LocStr="AMD_FFXFI_MODE_X2")"#,
-        ownFrameGenTitle: "AMD FSR 3's frame generation")
+        ownFrameGenTitle: "AMD FSR 3's frame generation",
+        // Effects first: Learn measured it at 2.1–2.5 ms a frame at Ultra on a base M4 (22 October); then the fog and
+        // light shafts, shadows, foliage (1.0–1.3 ms), and post-processing.
+        scalability: ["sg.EffectsQuality", "sg.VolumetricsQuality", "sg.ShadowQuality", "sg.FoliageQuality", "sg.PostProcessQuality"],
+        scalabilityFloor: 2)
 
     static let profiles: [Profile] = [hogwarts]
 
@@ -243,9 +262,46 @@ enum GameUpscaler {
         var frameGenOnByAnvil: Bool? = nil
         var frameGenLeftOff: Bool? = nil
         var frameGenRefusedWith: [Brand]? = nil
+        /// Quality groups lowered for an even 80, in the order lowered; what Anvil set each to; the player's own before.
+        var lowered: [String]? = nil
+        var graphicsSet: [String: Int]? = nil
+        var graphicsBefore: [String: Int]? = nil
+        /// Decided after a session, written at the next start: then what was set before tells a change in its menu.
+        var graphicsNext: [String: Int]? = nil
     }
 
-    static let recordVersion = 2
+    /// 3 since 0.64: a record of 2 stepped Automatic's quality up from frames the game made between its own, counted
+    /// as its own — Hogwarts Legacy to Balanced on 22 October from "61 fps of its own", 30 of them made.
+    static let recordVersion = 3
+
+    static let scalabilitySection = "[ScalabilityGroups]"
+
+    /// What the game will run with, as text: its options save where it keeps one, else its ini.
+    static func gameText(_ game: Game, in container: Container, profile: Profile) -> String? {
+        if let save = optionsSaves(for: game, in: container, profile: profile).lazy.compactMap({ OptionsSave($0) }).first { return save.text }
+        guard let file = settingsFile(for: game, in: container) else { return nil }
+        return try? String(contentsOf: file, encoding: .utf8)
+    }
+
+    static func groupName(_ key: String) -> String {
+        switch key {
+        case "sg.EffectsQuality": "Effects"
+        case "sg.VolumetricsQuality": "Fog and light shafts"
+        case "sg.ShadowQuality": "Shadows"
+        case "sg.FoliageQuality": "Foliage"
+        case "sg.PostProcessQuality": "Post-processing"
+        default: key.replacingOccurrences(of: "sg.", with: "").replacingOccurrences(of: "Quality", with: "")
+        }
+    }
+
+    static func levelName(_ v: Int) -> String {
+        switch v {
+        case ...0: "Low"
+        case 1: "Medium"
+        case 2: "High"
+        default: "Ultra"
+        }
+    }
 
     nonisolated(unsafe) static var directory: URL = RuntimeManager.support.appendingPathComponent("GameUpscaler", isDirectory: true)
 
@@ -341,13 +397,21 @@ enum GameUpscaler {
         // the player asked on 22 October ("I need real frame gen working … stable 80"). What they had changed in its
         // menu since was trying for the same.
         var fresh = false
-        if let r = record, (r.version ?? 0) < recordVersion {
+        var requalified = false
+        if let r = record, (r.version ?? 0) < 2 {
             record?.wrote = nil
             record?.changedInGame = nil
             record?.frameGenOffByAnvil = false
             record?.sharpenByAnvil = false
             record?.version = recordVersion
             fresh = true
+        } else if let r = record, (r.version ?? 0) < recordVersion {
+            // Quality stepped up from the game's made frames counted as its own: back to where it was measured from.
+            if r.frameGenOnByAnvil == true, r.autoQuality == .balanced {
+                record?.autoQuality = .performance
+                requalified = true
+            }
+            record?.version = recordVersion
         }
         let gamesFG = usesGamesFrameGen(game, profile: profile, record: record)
         var keys: [(String, String)] = []
@@ -381,14 +445,19 @@ enum GameUpscaler {
                     }
                     if now.upscale != value, now.upscale != nil { line += " (it was \(now.text))" }
                     lines.append(line)
-                    let old = record
-                    record = Record(wrote: value, choice: choice, quality: game.gameUpscalerQuality, autoQuality: auto, at: Date(),
-                                    changedInGame: nil, unavailable: old?.unavailable ?? [],
-                                    frameGenOffByAnvil: old?.frameGenOffByAnvil ?? false, sharpenByAnvil: old?.sharpenByAnvil ?? false,
-                                    cameraBefore: old?.cameraBefore ?? [:], anvilFrameGen: anvilFrameGen, note: old?.note,
-                                    savedOptions: old?.savedOptions, version: recordVersion,
-                                    frameGenOnByAnvil: old?.frameGenOnByAnvil, frameGenLeftOff: old?.frameGenLeftOff,
-                                    frameGenRefusedWith: old?.frameGenRefusedWith)
+                    // Updated in place: everything else it holds (what's lowered for an even 80, its frame generation,
+                    // its camera as it was) carries on.
+                    var updated = record ?? Record(wrote: nil, choice: choice, quality: game.gameUpscalerQuality, autoQuality: auto,
+                                                   at: Date(), version: recordVersion)
+                    updated.wrote = value
+                    updated.choice = choice
+                    updated.quality = game.gameUpscalerQuality
+                    updated.autoQuality = auto
+                    updated.at = Date()
+                    updated.changedInGame = nil
+                    updated.anvilFrameGen = anvilFrameGen
+                    updated.version = recordVersion
+                    record = updated
                 }
             } else {
                 lines.append("its own upscaler: \(now.text) — none of DLSS, XeSS or FSR it has runs here")
@@ -399,6 +468,7 @@ enum GameUpscaler {
                                  autoQuality: startQuality(tier), at: Date(), version: recordVersion)
         if !saves.isEmpty { r.savedOptions = true }
         if fresh { lines.append("set up afresh for 0.63 — the game's own frame generation, from its motion vectors, is Automatic's now") }
+        if requalified { lines.append("quality back to Performance — its step to Balanced came from counting the frames the game made between its own as its own") }
 
         // Its own frame generation, Automatic's where it has one: made from the game's own motion vectors and depth.
         // Anvil's Smooth Motion stands down (the launch reads the file), and Anvil only takes the picture to the display.
@@ -466,16 +536,66 @@ enum GameUpscaler {
             }
         }
 
+        // Its quality groups, for an even 80: the ones lowered, kept lowered — unless changed in its menu since, then
+        // the player's; as set, the player's own back.
+        var groupKeys: [(String, String)] = []
+        let groups = Learn.scalability(in: source)
+        if let lowered = r.lowered, !lowered.isEmpty {
+            if game.gameGraphics == .automatic {
+                var kept: [String] = []
+                var said: [String] = []
+                let next = r.graphicsNext ?? [:]
+                r.graphicsNext = nil
+                for key in lowered {
+                    let last = r.graphicsSet?[key]
+                    let current = groups[key]
+                    // Not what Anvil last wrote, nor the player's own before: changed in its menu since — theirs.
+                    if let last, let current, current != last, current != r.graphicsBefore?[key] {
+                        said.append("\(groupName(key)) \(levelName(current)) as set in its menu")
+                        r.graphicsSet?[key] = nil
+                        r.graphicsBefore?[key] = nil
+                        continue
+                    }
+                    guard let want = next[key] ?? last else { continue }
+                    r.graphicsSet?[key] = want
+                    if current != want { groupKeys.append((key, String(want))) }
+                    // Back at the player's own: written, and no longer Anvil's.
+                    if want >= (r.graphicsBefore?[key] ?? 99) {
+                        r.graphicsSet?[key] = nil
+                        r.graphicsBefore?[key] = nil
+                    } else {
+                        kept.append(key)
+                    }
+                }
+                r.lowered = kept
+                let list = kept.compactMap { k in r.graphicsSet?[k].map { "\(groupName(k)) \(levelName($0))" } }
+                if !list.isEmpty {
+                    lines.append("graphics for an even 80: " + list.joined(separator: ", ") + " — the rest as set in its menu")
+                }
+                if !said.isEmpty { lines.append("graphics: " + said.joined(separator: ", ") + " — left as it is") }
+            } else {
+                for key in lowered {
+                    if let before = r.graphicsBefore?[key], groups[key] == r.graphicsSet?[key] { groupKeys.append((key, String(before))) }
+                }
+                lines.append("graphics exactly as set in its menu: " + lowered.compactMap { k in r.graphicsBefore?[k].map { "\(groupName(k)) \(levelName($0))" } }.joined(separator: ", ") + " back")
+                r.lowered = []
+                r.graphicsSet = [:]
+                r.graphicsBefore = [:]
+                r.graphicsNext = nil
+            }
+        }
+
         // The same changes in each copy: the ini, and each options save.
         func applied(_ t: String) -> String {
             var out = keys.isEmpty ? t : setting(keys, in: profile.section, of: t)
+            if !groupKeys.isEmpty { out = setting(groupKeys, in: scalabilitySection, of: out) }
             if !tupleKeys.isEmpty, var tuple = value(profile.cameraKey, in: profile.section, of: out) {
                 for (k, v) in tupleKeys.sorted(by: { $0.key < $1.key }) { tuple = settingTuple(k, to: v, in: tuple) }
                 out = setting([(profile.cameraKey, tuple)], in: profile.section, of: out)
             }
             return out
         }
-        if !keys.isEmpty || !tupleKeys.isEmpty {
+        if !keys.isEmpty || !tupleKeys.isEmpty || !groupKeys.isEmpty {
             let updated = applied(text)
             if updated != text, !DiskCache.writeReplacing(Data(updated.utf8), to: file, durable: true) {
                 return ["its own upscaler: its settings file couldn't be written — the game starts with its own"]
@@ -630,37 +750,90 @@ enum GameUpscaler {
             return lines
         }
         r.note = "\(now.text) last session."
-        // Automatic: one step at a time, from the frame rate of its own it made where the GPU set the pace.
-        if game.gameUpscalerQuality == nil, let step = qualityStep(play, current: r.autoQuality, anvilFrameGen: r.anvilFrameGen) {
-            let from = r.autoQuality
-            r.autoQuality = step.to
-            r.note = "\(now.text) last session — \(step.to.title) from its next start: \(step.why)."
-            lines.append("its own upscaler: \(step.to.title) from its next start, from \(from.title) — \(step.why)")
+        // For an even 80: a step at a time, from how much of the session it held 80 or more.
+        let groups = gameText(game, in: container, profile: profile).map { Learn.scalability(in: $0) } ?? [:]
+        let at80 = shareAt80(play)
+        let effective = (r.graphicsSet ?? [:]).merging(r.graphicsNext ?? [:]) { _, next in next }
+        if let step = tuneStep(at80: at80.share, seconds: at80.seconds, quality: game.gameUpscalerQuality == nil ? r.autoQuality : nil,
+                               graphics: game.gameGraphics == .automatic ? groups.merging(effective) { _, set in set } : nil,
+                               lowered: r.lowered ?? [], set: effective, before: r.graphicsBefore ?? [:], profile: profile) {
+            let held = String(format: "%.0f%% of its play at 80 fps or more", at80.share * 100)
+            switch step {
+            case .quality(let to):
+                let from = r.autoQuality
+                r.autoQuality = to
+                lines.append("its own upscaler: \(to.title) from its next start, from \(from.title) — \(held)")
+                r.note = "\(now.text) last session, \(held) — \(to.title) from its next start."
+            case .lower(let changes):
+                var lowered = r.lowered ?? [], next = r.graphicsNext ?? [:], before = r.graphicsBefore ?? [:]
+                for (key, value) in changes {
+                    if before[key] == nil { before[key] = groups[key] }
+                    next[key] = value
+                    if !lowered.contains(key) { lowered.append(key) }
+                }
+                if r.graphicsSet == nil { r.graphicsSet = [:] }
+                r.lowered = lowered; r.graphicsNext = next; r.graphicsBefore = before
+                let list = changes.map { "\(groupName($0.key)) \(levelName($0.value))" }.joined(separator: ", ")
+                lines.append("graphics for an even 80: \(list) from its next start — \(held), short of the 80% it's held to")
+                r.note = "\(held) last session — \(list) from its next start, for an even 80. Exactly As Set in its menu keeps its own."
+            case .raise(let key, let value):
+                // Written at the next start, and let go of there once it's back at the player's own (prepare).
+                var next = r.graphicsNext ?? [:]
+                next[key] = value
+                r.graphicsNext = next
+                lines.append(value >= (r.graphicsBefore?[key] ?? value)
+                             ? "graphics: \(groupName(key)) back to \(levelName(value)) as set in its menu from its next start — \(held)"
+                             : "graphics for an even 80: \(groupName(key)) up to \(levelName(value)) from its next start — \(held)")
+                r.note = "\(held) last session — \(groupName(key)) a step back up from its next start."
+            }
+        } else if at80.seconds >= 300 {
+            r.note = String(format: "\(now.text) last session, %.0f%% of its play at 80 fps or more.", at80.share * 100)
         }
         save(r, for: game)
         return lines
     }
 
-    /// What it needs of its own frame rate to look smooth here: with Anvil's frames between, 45 (shown as 90); without,
-    /// Steady's even 80, less a little.
-    static func needed(anvilFrameGen: Bool) -> Double { anvilFrameGen ? 45 : 72 }
-
-    /// The next quality for Automatic, or nil to stay: a step sharper where the game made well over what it needs
-    /// even in its heaviest stretches, a step quicker where the GPU held it under. Three minutes of play at least.
-    static func qualityStep(_ play: [FrameWindow], current: UpscaleQuality, anvilFrameGen: Bool) -> (to: UpscaleQuality, why: String)? {
+    /// How much of a session's play was shown at an even 80 or more — every frame shown, the game's made ones and
+    /// Anvil's too, as the player saw it — and how long it played.
+    static func shareAt80(_ play: [FrameWindow]) -> (share: Double, seconds: Double) {
         let seconds = play.reduce(0) { $0 + $1.seconds }
-        guard seconds >= 180, let at = qualities.firstIndex(of: current) else { return nil }
-        let need = needed(anvilFrameGen: anvilFrameGen)
-        let weighted = play.map { (value: $0.rendered, weight: $0.seconds) }
-        let busy = play.filter { ($0.gpuBusy ?? 0) >= 90 }
-        let busyShare = busy.reduce(0) { $0 + $1.seconds } / seconds
-        let low = TrialStats.percentile(weighted, 0.25)
-        let busyLow = busy.isEmpty ? low : TrialStats.percentile(busy.map { (value: $0.rendered, weight: $0.seconds) }, 0.25)
-        if busyShare >= 0.25, busyLow < need * 0.85, at + 1 < qualities.count {
-            return (qualities[at + 1], String(format: "the GPU flat out held it to %.0f fps of its own in its heavier quarter, under the %.0f it needs", busyLow, need))
+        guard seconds > 0 else { return (0, 0) }
+        let held = play.filter { w in
+            let shown = w.displayed / max(0.05, 1 - (w.generatedShare ?? 0))
+            return shown >= 78
+        }.reduce(0) { $0 + $1.seconds }
+        return (held / seconds, seconds)
+    }
+
+    enum TuneStep: Equatable {
+        case quality(UpscaleQuality)
+        case lower([String: Int])
+        case raise(String, Int)
+    }
+
+    /// The next step for an even 80, from a session of five minutes or more: under 80% of it at 80 or more, quality to
+    /// Performance first (where Automatic has it higher), then the next quality group on the profile's list a step
+    /// lower — two when under half — never below its floor; 95% or more, the last group lowered a step back up, and
+    /// with none lowered, quality a step sharper. `quality` and `graphics` are nil where the player chose them.
+    static func tuneStep(at80: Double, seconds: Double, quality: UpscaleQuality?, graphics: [String: Int]?, lowered: [String],
+                         set: [String: Int], before: [String: Int], profile: Profile) -> TuneStep? {
+        guard seconds >= 300 else { return nil }
+        if at80 < 0.80 {
+            if let q = quality, let i = qualities.firstIndex(of: q), q != .performance, i + 1 < qualities.count {
+                return .quality(qualities[i + 1])
+            }
+            guard let graphics else { return nil }
+            var changes: [String: Int] = [:]
+            let wanted = at80 < 0.5 ? 2 : 1
+            for key in profile.scalability where changes.count < wanted {
+                guard let v = graphics[key], v > profile.scalabilityFloor else { continue }
+                changes[key] = v - 1
+            }
+            return changes.isEmpty ? nil : .lower(changes)
         }
-        if low >= need * 1.25, busyLow >= need * 1.25, at > 0 {
-            return (qualities[at - 1], String(format: "it made %.0f fps of its own or more three quarters of the time, well over the %.0f it needs", low, need))
+        if at80 >= 0.95 {
+            if graphics != nil, let key = lowered.last, let v = set[key], v < (before[key] ?? 3) { return .raise(key, v + 1) }
+            if let q = quality, let i = qualities.firstIndex(of: q), i > 0 { return .quality(qualities[i - 1]) }
         }
         return nil
     }

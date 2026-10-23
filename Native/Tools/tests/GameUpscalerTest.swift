@@ -167,16 +167,30 @@ struct GameUpscalerTest {
         try? Data("WINE REGISTRY Version 2\n[Software\\\\Nvidia Corporation\\\\Global\\\\NGXCore] 1\n#time=1\n\n".utf8).write(to: reg)
         check(!DLSSThroughMetalFX.shownNVIDIA(c), "the key with no FullPath in it: not shown")
 
-        print("— Automatic's quality, from how it ran")
-        check(GameUpscaler.qualityStep(window(70, gpu: 70, seconds: 120), current: .balanced, anvilFrameGen: true) == nil, "two minutes: too little to go by")
-        let up = GameUpscaler.qualityStep(window(70, gpu: 70, seconds: 240), current: .balanced, anvilFrameGen: true)
-        check(up?.to == .quality, "70 fps of its own throughout, 45 needed with Smooth Motion: a step sharper — \(up?.why ?? "-")")
-        let down = GameUpscaler.qualityStep(window(60, gpu: 60, seconds: 120) + window(33, gpu: 99, seconds: 120), current: .balanced, anvilFrameGen: true)
-        check(down?.to == .performance, "held to 33 by the GPU flat out half the time: a step quicker — \(down?.why ?? "-")")
-        check(GameUpscaler.qualityStep(window(50, gpu: 99, seconds: 240), current: .balanced, anvilFrameGen: true) == nil, "50 with the GPU flat out: enough, kept")
-        check(GameUpscaler.qualityStep(window(55, gpu: 99, seconds: 240), current: .balanced, anvilFrameGen: false)?.to == .performance,
-              "55 without frame generation, 72 needed: a step quicker")
-        check(GameUpscaler.qualityStep(window(90, gpu: 50, seconds: 240), current: .quality, anvilFrameGen: true) == nil, "already at the sharpest offered: kept")
+        print("— for an even 80, from how much of each session held it (0.64)")
+        let h = GameUpscaler.hogwarts
+        let ultra = Dictionary(uniqueKeysWithValues: h.scalability.map { ($0, 3) })
+        let share = GameUpscaler.shareAt80(window(85, gpu: 99, seconds: 180) + window(60, gpu: 99, seconds: 120))
+        check(abs(share.share - 0.6) < 0.03 && abs(share.seconds - 300) < 10, "three minutes at 85, two at 60: 60% at 80 or more (\(share))")
+        var anvils = window(40, gpu: 99, seconds: 300)
+        for i in anvils.indices { anvils[i].generatedShare = 0.5 }
+        check(GameUpscaler.shareAt80(anvils).share > 0.99, "40 of its own shown as 80 with Anvil's frames between: at 80, as seen")
+        func step(_ at80: Double, _ seconds: Double = 600, quality: UpscaleQuality? = .performance, graphics: [String: Int]? = ultra,
+                  lowered: [String] = [], set: [String: Int] = [:], before: [String: Int] = [:]) -> GameUpscaler.TuneStep? {
+            GameUpscaler.tuneStep(at80: at80, seconds: seconds, quality: quality, graphics: graphics, lowered: lowered, set: set, before: before, profile: h)
+        }
+        check(step(0.3, 200) == nil, "under five minutes: too little to go by")
+        check(step(0.6, quality: .balanced) == .quality(.performance), "short of 80% at Balanced: Performance first")
+        check(step(0.6) == .lower(["sg.EffectsQuality": 2]), "at Performance: Effects a step lower first")
+        check(step(0.3) == .lower(["sg.EffectsQuality": 2, "sg.VolumetricsQuality": 2]), "under half: two at once")
+        var some = ultra; some["sg.EffectsQuality"] = 2
+        check(step(0.6, graphics: some) == .lower(["sg.VolumetricsQuality": 2]), "Effects already at High: the next")
+        check(step(0.6, graphics: Dictionary(uniqueKeysWithValues: h.scalability.map { ($0, 2) })) == nil, "all at High: never lower")
+        check(step(0.85) == nil, "85%: kept, neither way")
+        check(step(0.97, graphics: some, lowered: ["sg.EffectsQuality"], set: ["sg.EffectsQuality": 2], before: ["sg.EffectsQuality": 3]) == .raise("sg.EffectsQuality", 3),
+              "97% with Effects lowered: Effects back up first")
+        check(step(0.97) == .quality(.balanced), "97% with nothing lowered: a step sharper")
+        check(step(0.3, quality: nil, graphics: nil) == nil, "quality and graphics both as the player chose: nothing")
         check(GameUpscaler.startQuality(.base) == .balanced && GameUpscaler.startQuality(.pro) == .quality && GameUpscaler.startQuality(.entry) == .performance,
               "where it starts by graphics tier")
 
@@ -258,6 +272,65 @@ struct GameUpscalerTest {
             let redo = GameUpscaler.prepare(g2, in: c2, dlssReady: true, anvilFrameGen: true, anvilToDisplay: true, tier: .base)
             check(redo.contains { $0.contains("set up afresh") } && GameUpscaler.record(for: g2)?.version == GameUpscaler.recordVersion
                   && GameUpscaler.inGame(g2, in: c2)?.frameGen == "AMD_FFXFI", "a 0.62 record: set up afresh once, its own frame generation on")
+        }
+
+        print("— for an even 80, set in the game's own files")
+        do {
+            var c3 = Container(name: "Even 80", runtimeID: "none")
+            c3.id = UUID()
+            let config3 = c3.driveC.appendingPathComponent("users/crossover/AppData/Local/Phoenix/Saved/Config/WindowsNoEditor", isDirectory: true)
+            let save3 = c3.driveC.appendingPathComponent("users/crossover/AppData/Local/Phoenix/Saved/SaveGames/2d99795513544c2cbdc588a08b453ac8", isDirectory: true)
+            try? fm.createDirectory(at: config3, withIntermediateDirectories: true)
+            try? fm.createDirectory(at: save3, withIntermediateDirectories: true)
+            let allUltra = GameUpscaler.setting(h.scalability.map { ($0, "3") }, in: GameUpscaler.scalabilitySection, of: original)
+            let ini3 = config3.appendingPathComponent("GameUserSettings.ini"), opt3 = save3.appendingPathComponent("SavedUserOptions.sav")
+            try? Data(allUltra.utf8).write(to: ini3)
+            try? real.replacing(text: allUltra)?.write(to: opt3)
+            func groups3() -> [String: Int] { Learn.scalability(in: GameUpscaler.OptionsSave(opt3)?.text ?? "") }
+            func iniGroups3() -> [String: Int] { Learn.scalability(in: (try? String(contentsOf: ini3, encoding: .utf8)) ?? "") }
+            let g3 = Game(title: "Hogwarts Legacy", executablePath: exe, containerID: c3.id)
+            check(g3.gameGraphics == .automatic, "for an even 80 by default")
+            _ = GameUpscaler.prepare(g3, in: c3, dlssReady: false, anvilFrameGen: true, anvilToDisplay: true, tier: .base)
+            check(GameUpscaler.inGame(g3, in: c3)?.upscale == "AMD_FSR3_Balanced", "set-up: its FSR 3 at Balanced, its own frame generation")
+            let short = window(65, gpu: 99, seconds: 400)
+            var said = GameUpscaler.afterSession(g3, in: c3, play: short)
+            check(GameUpscaler.record(for: g3)?.autoQuality == .performance && said.first?.contains("Performance from its next start") == true,
+                  "0% at 80: Performance first (\(said.first ?? "-"))")
+            _ = GameUpscaler.prepare(g3, in: c3, dlssReady: false, anvilFrameGen: true, anvilToDisplay: true, tier: .base)
+            said = GameUpscaler.afterSession(g3, in: c3, play: window(85, gpu: 99, seconds: 240) + window(65, gpu: 99, seconds: 160))
+            check(GameUpscaler.record(for: g3)?.lowered == ["sg.EffectsQuality"] && said.first?.contains("Effects High from its next start") == true,
+                  "half at 80 at Performance: Effects a step lower (\(said.first ?? "-"))")
+            let lines3 = GameUpscaler.prepare(g3, in: c3, dlssReady: false, anvilFrameGen: true, anvilToDisplay: true, tier: .base)
+            check(groups3()["sg.EffectsQuality"] == 2 && iniGroups3()["sg.EffectsQuality"] == 2 && groups3()["sg.TextureQuality"] == 3,
+                  "Effects at High in its options save and its ini; textures as they were")
+            check(lines3.contains { $0.contains("graphics for an even 80: Effects High") }, "and said at the start")
+            _ = GameUpscaler.afterSession(g3, in: c3, play: short)
+            _ = GameUpscaler.prepare(g3, in: c3, dlssReady: false, anvilFrameGen: true, anvilToDisplay: true, tier: .base)
+            check(groups3()["sg.VolumetricsQuality"] == 2 && groups3()["sg.ShadowQuality"] == 2, "none of it at 80: two more, fog and shadows")
+            // The player sets Shadows in the menu: theirs.
+            if let o = GameUpscaler.OptionsSave(opt3) {
+                try? o.replacing(text: GameUpscaler.setting([("sg.ShadowQuality", "1")], in: GameUpscaler.scalabilitySection, of: o.text))?.write(to: opt3)
+            }
+            let kept = GameUpscaler.prepare(g3, in: c3, dlssReady: false, anvilFrameGen: true, anvilToDisplay: true, tier: .base)
+            check(groups3()["sg.ShadowQuality"] == 1 && GameUpscaler.record(for: g3)?.lowered == ["sg.EffectsQuality", "sg.VolumetricsQuality"]
+                  && kept.contains { $0.contains("Shadows Medium as set in its menu") }, "Shadows changed in its menu: left as set")
+            // Plenty to spare: the last lowered back up.
+            _ = GameUpscaler.afterSession(g3, in: c3, play: window(95, gpu: 80, seconds: 400))
+            _ = GameUpscaler.prepare(g3, in: c3, dlssReady: false, anvilFrameGen: true, anvilToDisplay: true, tier: .base)
+            check(groups3()["sg.VolumetricsQuality"] == 3 && GameUpscaler.record(for: g3)?.lowered == ["sg.EffectsQuality"], "all of it at 80: fog back to Ultra")
+            // Exactly as set: the player's own back.
+            var asSet = g3; asSet.gameGraphics = .asSet
+            _ = GameUpscaler.prepare(asSet, in: c3, dlssReady: false, anvilFrameGen: true, anvilToDisplay: true, tier: .base)
+            check(groups3()["sg.EffectsQuality"] == 3 && iniGroups3()["sg.EffectsQuality"] == 3 && (GameUpscaler.record(for: g3)?.lowered ?? []).isEmpty,
+                  "Exactly As Set: Effects back to Ultra")
+            // 0.63's record that stepped up from made frames: back to Performance once.
+            if var r3 = GameUpscaler.record(for: g3) {
+                r3.version = 2; r3.autoQuality = .balanced; r3.frameGenOnByAnvil = true
+                GameUpscaler.save(r3, for: g3)
+                let fixed = GameUpscaler.prepare(g3, in: c3, dlssReady: false, anvilFrameGen: true, anvilToDisplay: true, tier: .base)
+                check(GameUpscaler.record(for: g3)?.autoQuality == .performance && fixed.contains { $0.contains("quality back to Performance") },
+                      "a 0.63 record stepped up from made frames: back to Performance")
+            }
         }
 
         print("— a clean picture, and back")

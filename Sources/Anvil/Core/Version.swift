@@ -6,7 +6,7 @@ import Foundation
 /// always say exactly what it is — the point is to be able to tell whether the app
 /// in front of you includes a given fix.
 enum AnvilVersion {
-    static let current = "0.63.0"
+    static let current = "0.64.0"
     static let build = buildStamp
 
     /// Baked at compile time from the source's own modification date, so two builds
@@ -34,6 +34,24 @@ enum AnvilVersion {
     }
 
     static let releases: [Release] = [
+        Release(
+            version: "0.64.0",
+            date: "22 October 2026",
+            headline: "Graphics for an even 80: a game's costliest settings a step lower, one session at a time, until 80 fps holds 80% of the time — never below High, its textures never — and back up when there's room.",
+            fixed: [
+                "With the game making its own frames, Anvil counted every frame shown as the game's own: Hogwarts Legacy's \"61 fps of its own\" on 22 October was about 30 of its own and 30 made, and Anvil took its quality up to Balanced for the next start — slower, where it was already short of 80. Its quality goes back to Performance, and quality now follows how much of each session held 80.",
+                "Learn counted the same made frames as the game's own, and halved what each of its settings cost: Ultra effects read as 0.6 ms a frame where earlier sessions had measured 2.1–2.5. Sessions with the game's own frame generation are counted by the game's own frames now.",
+                "Re-applying the game's own upscaler rebuilt Anvil's record of it from scratch, losing what else it held.",
+            ],
+            added: [
+                "Graphics on The Game's Own Upscaler: For an even 80 (Automatic) or Exactly As Set in the game's menu. For an even 80, after a session of five minutes or more that held 80 fps or more less than 80% of the time, quality goes to Performance first, then the setting that costs the most frame time for the least to see goes a step lower — Effects, then Fog and light shafts, Shadows, Foliage, Post-processing — two at once under half. Never below High; textures, view distance and shading never. After a session at 80 for 95% of it, the last one lowered goes back up, and with nothing lowered, quality a step sharper. Set in both the game's settings file and its options save; anything set in its menu stays as set.",
+                "The page lists what's lowered for an even 80, and the launch log says it at each start.",
+            ],
+            known: [
+                "It takes a few sessions to settle: a step or two each. Hogwarts Legacy on a base M4 held 80 for 17–28% of its play at Ultra on 22 October; how far the steps take it, the sessions will say.",
+                "The game's own stutters — about one every ten seconds in Hogwarts Legacy, 95 ms typically, its own work rather than loading or shaders — aren't Anvil's to remove. Less memory in use helps: closing other apps before playing, which Anvil names at the start.",
+                "MetalFX's spatial upscaler was measured at 2.4–2.7 ms a frame at 1512x982 → 3024x1964 on a base M4, against Anvil's FSR 1 at 1.3: Anvil keeps FSR 1 for the picture to the display.",
+            ]),
         Release(
             version: "0.63.0",
             date: "22 October 2026",

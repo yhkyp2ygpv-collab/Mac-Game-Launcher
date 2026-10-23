@@ -38,6 +38,18 @@ struct GameUpscalerSection: View {
                         Text("Off").tag(GameUpscaler.FrameGen.off)
                     }
                 }
+                if !profile.scalability.isEmpty {
+                    Picker("Graphics", selection: binding(\.gameGraphics, game)) {
+                        Text("For an even 80 — the costliest a step lower until it holds").tag(GameUpscaler.Graphics.automatic)
+                        Text("Exactly as set in the game's menu").tag(GameUpscaler.Graphics.asSet)
+                    }
+                    if game.gameGraphics == .automatic, let lowered = record?.lowered, !lowered.isEmpty {
+                        LabeledContent("Lowered for an even 80", value: lowered.compactMap { key in
+                            (record?.graphicsNext?[key] ?? record?.graphicsSet?[key]).map { "\(GameUpscaler.groupName(key)) \(GameUpscaler.levelName($0))" }
+                        }.joined(separator: ", "))
+                        .font(.callout)
+                    }
+                }
                 Toggle("Clean picture — film grain and colour fringing off", isOn: binding(\.cleanPicture, game))
                 if let inGame {
                     LabeledContent("In its settings now", value: inGame.text + (inGame.frameGen.map { " · its own frame generation on (\($0))" } ?? ""))
@@ -56,7 +68,10 @@ struct GameUpscalerSection: View {
                 if profile.ownFrameGen != nil {
                     note("Frame generation on Automatic is the game's own: \(profile.ownFrameGenTitle), made from the game's own motion vectors and depth — what Anvil's Smooth Motion can only estimate from the finished pictures. Anvil's then stands down and only takes the picture to the display, a millisecond or so of the GPU's time a frame where Smooth Motion with FSR 3 took five to eight. In Hogwarts Legacy at Ultra on a base M4 (22 October): 67 fps on average with its own frame generation and its FSR 3 at Performance; 48 with Smooth Motion and DLSS at Performance.")
                 }
-                note("Quality on Automatic starts at \(GameUpscaler.startQuality(DeviceProfile.current?.tier).title) on this Mac and moves a step after a session that shows room for more, or too little: sharper where the game made well over what it needs even in its heaviest places, quicker where the GPU held it under. Its own frame generation is turned off while Anvil's is on — frames made from made frames warp — and its sharpening goes back to its default, as Anvil's FSR sharpens the picture to the display. Set before its next start; anything you change afterwards in the game's own menu stays as you set it.")
+                if !profile.scalability.isEmpty {
+                    note("Graphics for an even 80: after each session of five minutes or more that held 80 fps or more less than 80% of the time, quality goes to Performance first, then the setting that costs the most frame time for the least to see goes a step lower — Effects, then Fog and light shafts, Shadows, Foliage, Post-processing — never below High. Textures, view distance and shading are never touched. After a session that held 80 for 95% of it, the last one lowered goes back up. Anything you set in the game's own menu stays as you set it.")
+                }
+                note("Quality on Automatic starts at \(GameUpscaler.startQuality(DeviceProfile.current?.tier).title) on this Mac. After a session that held 80 fps or more for 95% of it with nothing lowered, it goes a step sharper; after one under 80%, back to Performance first. Its own frame generation is turned off while Anvil's is on — frames made from made frames warp — and its sharpening goes back to its default, as Anvil's FSR sharpens the picture to the display. Set before its next start; anything you change afterwards in the game's own menu stays as you set it.")
             } header: {
                 Text("The Game's Own Upscaler")
             }

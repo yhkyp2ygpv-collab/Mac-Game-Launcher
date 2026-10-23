@@ -1097,8 +1097,6 @@ final class Launcher: ObservableObject {
         if GameAnalysis.cached(for: game.executableURL)?.engine == .unreal, let line = UnrealConfig.prepare(game, in: container) {
             AnvilLog.write("  " + line)
         }
-        // What this session runs with, for Learn to file it under (game.log, under the header).
-        let learnParts = LearnStore.parts(for: tuned, in: container, level: level)
         // An Epic game started from its .exe is not signed in, and cannot see the DLC
         // its owner has. Its launcher's legendary gives the arguments Epic's own
         // launcher would pass — the same call Mythic makes on Play — and it has been
@@ -1207,6 +1205,11 @@ final class Launcher: ObservableObject {
             }
         }
         beginGameLog(for: game)
+        // What this session runs with, for Learn to file it under (game.log, under the header). Read after the game's
+        // own settings are written (GameUpscaler): its quality groups as it will run them, and its own frame
+        // generation, which doubles what's presented — Learn counts the game's own frames from it.
+        var learnParts = LearnStore.parts(for: tuned, in: container, level: level)
+        if GameUpscaler.inGame(game, in: container)?.frameGen != nil { learnParts.append(Learn.gamesOwnFrames) }
         appendGameLog(Learn.setupLine(learnParts))
         let logStart = (try? FileManager.default.attributesOfItem(atPath: Self.gameLogURL.path))?[.size] as? UInt64 ?? 0
         if let line = tuning.logLine {

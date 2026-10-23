@@ -66,12 +66,18 @@ struct LearnModel: Codable {
     mutating func learn(startedAt: Date, parts: [String], windows: [FrameWindow]) -> Int {
         let at = startedAt.timeIntervalSince1970
         guard !sessions.contains(where: { abs($0 - at) < 1 }) else { return 0 }
-        let sorted = parts.sorted()
+        // The game making a frame of its own between each two (its own frame generation): every other frame presented
+        // is a made one, so a frame of its own took twice what's measured a presented one. Until 0.64 they were
+        // counted as its own, and Hogwarts Legacy's Ultra effects read as +0.6 ms a frame where earlier sessions had
+        // measured 2.1–2.5 (22 October).
+        let made = parts.contains(Learn.gamesOwnFrames)
+        let per: Double = made ? 2 : 1
+        let sorted = parts.filter { $0 != Learn.gamesOwnFrames }.sorted()
         let new = Self.usable(windows).map { w -> LearnSample in
-            let scene = w.gpuKinds?["scene"]
-            let game = w.gpuWorkMs.map { $0 - (w.gpuKinds?["Anvil"] ?? 0) }
+            let scene = w.gpuKinds?["scene"].map { $0 * per }
+            let game = w.gpuWorkMs.map { ($0 - (w.gpuKinds?["Anvil"] ?? 0)) * per }
             return LearnSample(at: at, parts: sorted, scene: Float(scene ?? -1), game: Float(game ?? -1),
-                               frame: Float(1000 / w.capacity), seconds: Float(w.seconds))
+                               frame: Float(1000 / w.capacity * per), seconds: Float(w.seconds))
         }
         guard !new.isEmpty else { return 0 }
         sessions.append(at)
@@ -233,6 +239,9 @@ enum Learn {
         for (key, value) in unreal.sorted(by: { $0.key < $1.key }) { out.append("\(key)=\(value)") }
         return out
     }
+
+    /// In a session's parts: the game made frames of its own between its own (GameUpscaler.FrameGen).
+    static let gamesOwnFrames = "framegen:game"
 
     /// The line at the top of a session in game.log that says what it ran with.
     static func setupLine(_ parts: [String]) -> String {
