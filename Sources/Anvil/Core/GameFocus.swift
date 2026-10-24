@@ -51,6 +51,29 @@ enum GameFocus {
         }
     }
 
+    /// Anvil in front with its window hidden while a game runs — nothing of Anvil's to see or use — hands the front back
+    /// to the game. On 23 October, three seconds after the lid of a MacBook was opened on Hogwarts Legacy, Anvil came to
+    /// the front this way, and the game, on screen and being played, was held to 30 and then 10 fps as if behind another
+    /// app for 23 minutes, until it was switched away from and back to. Opened from the Dock or with ⌘-Tab, Anvil's
+    /// window shows — that's left alone.
+    static func watchActivation() {
+        guard NSApplication.shared.isRunning else { return }
+        NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { _ in
+            Task { @MainActor in
+                guard hidden, !Launcher.shared.sessions.isEmpty else { return }
+                try? await Task.sleep(for: .milliseconds(400))
+                guard hidden, NSApp.isActive, NSApp.isHidden, let session = Launcher.shared.sessions.first else { return }
+                let game = session.game
+                let wanted = game.executableURL.deletingPathExtension().lastPathComponent
+                guard let app = NSWorkspace.shared.runningApplications.first(where: { ($0.bundleIdentifier ?? "").hasPrefix("dev.anvil.game.") })
+                        ?? candidate(named: wanted, after: .distantPast) else { return }
+                NSApp.yieldActivation(to: app)
+                app.activate()
+                AnvilLog.write("focus: Anvil came to the front with its window hidden — the front handed back to \(game.title)")
+            }
+        }
+    }
+
     /// Come back once the game has exited.
     static func reclaim() {
         guard hidden, NSApplication.shared.isRunning else { return }

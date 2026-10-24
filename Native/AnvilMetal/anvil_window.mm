@@ -123,6 +123,65 @@ static void noteBehind(void) {
     else if (g_behindSince.load() <= 0.0) g_behindSince.store(CACurrentMediaTime());
 }
 
+// The game in front as the screen went away (or until just before: the lock can come a moment after another app):
+// in front again once the screen is back. On 23 October, three seconds after the lid of a MacBook was opened on
+// Hogwarts Legacy, Anvil's own (hidden) window took the front, and the game — on screen, played — was held to 30
+// and then 10 fps for 23 minutes, until it was switched away from and back to.
+static std::atomic<bool> g_frontAtAway{false};
+static std::atomic<double> g_resignedAt{0.0};
+
+/// Back in front, if what took the front is nothing the player chose: Anvil's own hidden window, the login window or
+/// the Finder's desktop. Looked at a second after the screen is back, and again at four.
+static void reclaimFront(NSApplication* app, const char* path) {
+    static const double kAfter[] = {1.0, 4.0};
+    for (double after : kAfter) {
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(after * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            if (g_inFront.load() || g_screenAway.load()) return;
+            Class wsClass = NSClassFromString(@"NSWorkspace");
+            NSString* front = wsClass ? [[wsClass sharedWorkspace] frontmostApplication].bundleIdentifier : nil;
+            if (front && ![front isEqualToString:@"dev.anvil.launcher"] && ![front isEqualToString:@"com.apple.loginwindow"]
+                && ![front isEqualToString:@"com.apple.finder"]) return;
+            if ([app respondsToSelector:@selector(activate)]) [app performSelector:@selector(activate)];
+            else [app activateIgnoringOtherApps:YES];
+            if (FILE* out = path ? fopen(path, "a") : nullptr) {
+                fprintf(out, "[anvil] the screen is back with %s in front — the game brought back to the front\n",
+                        front ? front.UTF8String : "nothing");
+                fclose(out);
+            }
+        });
+    }
+}
+
+// The pointer, hidden while it's left alone with the game in front — over a game played with a controller it sat in
+// the middle of the picture (23 October). It's back as soon as the mouse moves; a game holding the mouse for itself
+// hides it anyway. ANVIL_HIDE_POINTER=0 leaves it.
+static void hideIdlePointer(const char* path) {
+    const char* want = getenv("ANVIL_HIDE_POINTER");
+    if (want && want[0] == '0') return;
+    Class eventClass = NSClassFromString(@"NSEvent"), cursorClass = NSClassFromString(@"NSCursor");
+    if (!eventClass || !cursorClass) return;
+    static NSPoint last = {-1, -1};
+    static int still = 0;
+    static bool hidden = false, said = false;
+    dispatch_source_t timer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, dispatch_get_main_queue());
+    dispatch_source_set_timer(timer, dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC), NSEC_PER_SEC, NSEC_PER_SEC / 10);
+    dispatch_source_set_event_handler(timer, ^{
+        const NSPoint p = [eventClass mouseLocation];
+        if (p.x != last.x || p.y != last.y) { last = p; still = 0; hidden = false; return; }
+        if (!anvil_game_in_front() || hidden || ++still < 2) return;
+        [cursorClass setHiddenUntilMouseMoves:YES];
+        hidden = true;
+        if (!said && path) {
+            said = true;
+            if (FILE* out = fopen(path, "a")) {
+                fprintf(out, "[anvil] the pointer hidden while the mouse is left alone — it's back as soon as the mouse moves\n");
+                fclose(out);
+            }
+        }
+    });
+    dispatch_resume(timer);
+}
+
 extern "C" const char* anvil_front_notify_name(void) {
     static char name[64] = "";
     static std::atomic<bool> made{false};
@@ -164,18 +223,21 @@ extern "C" void anvil_watch_front(void) {
         char* path = logPath ? strdup(logPath) : nullptr;
         void (^changed)(bool) = ^(bool front) {
             if (g_inFront.exchange(front) == front) return;
+            if (!front) g_resignedAt.store(CACurrentMediaTime());
             publishFront(front);
             noteBehind();
             if (!path) return;
             if (FILE* out = fopen(path, "a")) {
                 fprintf(out, front ? "[anvil] back in front — full frame rate again\n"
-                                   : "[anvil] another app is in front — held to 30 fps until the game is back (10 fps after two minutes)\n");
+                                   : "[anvil] another app is in front — held to 30 fps after two seconds until the game is back (10 fps after two minutes)\n");
                 fclose(out);
             }
         };
         void (^away)(bool) = ^(bool gone) {
             if (g_screenAway.exchange(gone) == gone) return;
+            if (gone) g_frontAtAway.store(g_inFront.load() || CACurrentMediaTime() - g_resignedAt.load() < 3.0);
             noteBehind();
+            if (!gone && g_frontAtAway.exchange(false)) reclaimFront(app, path);
             if (!path) return;
             if (FILE* out = fopen(path, "a")) {
                 fprintf(out, gone ? "[anvil] the screen is locked or asleep — the game held to 5 fps until it's back\n"
@@ -186,6 +248,7 @@ extern "C" void anvil_watch_front(void) {
         g_inFront.store(app.isActive);
         publishFront(app.isActive);
         noteBehind();
+        hideIdlePointer(path);
         // The screen locked and unlocked (loginwindow's own notices), and the displays asleep and awake (NSWorkspace's,
         // by their values: AppKit isn't linked).
         NSDistributedNotificationCenter* distributed = [NSDistributedNotificationCenter defaultCenter];

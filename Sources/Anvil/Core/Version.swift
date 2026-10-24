@@ -6,7 +6,7 @@ import Foundation
 /// always say exactly what it is — the point is to be able to tell whether the app
 /// in front of you includes a given fix.
 enum AnvilVersion {
-    static let current = "0.65.0"
+    static let current = "0.66.0"
     static let build = buildStamp
 
     /// Baked at compile time from the source's own modification date, so two builds
@@ -34,6 +34,22 @@ enum AnvilVersion {
     }
 
     static let releases: [Release] = [
+        Release(
+            version: "0.66.0",
+            date: "23 October 2026",
+            headline: "Back to full frame rate the moment a MacBook's lid opens on a game, the pointer out of the way while you play, no stutter when the front is lost for a moment — and ray tracing that runs when it's chosen.",
+            fixed: [
+                "Opening a MacBook's lid on a game left it held at 30 and then 10 fps as if it were behind another app, until it was switched away from and back to: Hogwarts Legacy was held for 23 minutes on 23 October, on screen and being played. Three seconds after the lid opened, Anvil's own window — hidden — had taken the front. Anvil hands the front straight back to the game now when that happens, and the game takes it back itself when the screen returns with the login window, the desktop or Anvil in front.",
+                "Losing the front for a moment dropped a game to 30 fps there and then: Hogwarts Legacy lost it for about a second 24 times in 45 minutes of play — to the desktop or Anvil's hidden window, from stray taps — each seen as a stutter. The frame rate is held only after two seconds behind now.",
+                "Hogwarts Legacy was played for ray tracing with none of it running: Anvil's Ray Tracing switch for it was off, and with it off D3DMetal doesn't offer the game ray tracing at all, so nothing its own menu says can turn it on. The launch log and the game's page say so now, and Ray tracing on its page turns it on.",
+            ],
+            added: [
+                "The pointer is hidden while the mouse is left alone with a game in front — over a game played with a controller it sat in the middle of the picture — and back the moment the mouse moves.",
+            ],
+            known: [
+                "The latency left is mostly the game's own frame generation — it holds each frame of its own back to make the one between — with the GPU flat out behind it. Lower Latency at Low Frame Rates on the game's Performance tab starts each frame only as the GPU is about to finish the last: 15–25% less delay for 7–12% fewer frames, a trade that stays yours.",
+                "With every setting at Low, Hogwarts Legacy held 80 fps 70–90% of the time on a base M4 (23 October); in fights the game's own thread is then the limit, at 97% of a core.",
+            ]),
         Release(
             version: "0.65.0",
             date: "23 October 2026",

@@ -1681,7 +1681,11 @@ final class Launcher: ObservableObject {
             }
         }
         if let chosen = game.rayTracing {
-            return (chosen, "ray tracing: \(chosen ? "on" : "off"), as chosen for \(game.title)")
+            // Off, for a game whose ray-traced effects Anvil sets: its own menu can't switch them on either — on 23
+            // October Hogwarts Legacy was played for "ray tracing" with none of it running. Said, and where to have it.
+            let blocked = !chosen && hardware && !(GameUpscaler.profile(for: game)?.rayTracingSwitches.isEmpty ?? true)
+            return (chosen, "ray tracing: \(chosen ? "on" : "off"), as chosen for \(game.title)"
+                            + (blocked ? " — so its own ray-traced effects can't run, whatever its menu says; Ray tracing on its page turns them on" : ""))
         }
         guard offers else { return (container.raytracing, nil) }
         if hardware {

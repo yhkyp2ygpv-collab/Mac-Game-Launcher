@@ -124,6 +124,7 @@ struct GameUpscalerSection: View {
 
     private func automaticRayTracing(_ game: Game) -> String {
         guard MetalCapability.current.hardwareRayTracing else { return "off on this Mac" }
+        if game.rayTracing == false { return "off, with the Ray Tracing switch off — its menu can't turn it on" }
         if record?.rayTracingByAnvil == true { return "reflections on, with room to spare" }
         guard let inGame else { return "as in the game's menu" }
         return inGame.rayTraced.isEmpty ? "off, as in the game's menu" : "\(GameUpscaler.effectNames(inGame.rayTraced)), as in the game's menu"

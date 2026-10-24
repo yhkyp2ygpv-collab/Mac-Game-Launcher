@@ -17,6 +17,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         Housekeeping.atLaunch()
         GameReady.shared.install()
+        GameFocus.watchActivation()
     }
 
     @objc private func handleGetURL(_ event: NSAppleEventDescriptor, reply: NSAppleEventDescriptor) {

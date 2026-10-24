@@ -897,11 +897,18 @@ constexpr double kBehindPeriod = 1.0 / 30.0;
 // the screen locked or asleep, 5. Hogwarts Legacy drew 28 fps for half an hour behind Chrome on 22 October and for
 // three hours behind a locked screen the night before, on battery.
 constexpr double kBehindLongAfter = 120.0, kBehindLongPeriod = 1.0 / 10.0, kAwayPeriod = 1.0 / 5.0;
+// Nothing held for the first two seconds behind: on 23 October Hogwarts Legacy lost the front for a second 24 times in
+// 45 minutes of play — the Finder's desktop or Anvil's hidden window, clicked by a stray tap — and each dropped it to
+// 30 fps there and then, seen as a stutter.
+constexpr double kBehindGrace = 2.0;
 
-/// One frame in how long, behind another app: 30 a second, 10 after two minutes, 5 with nobody watching.
+/// One frame in how long, behind another app: none held the first two seconds, then 30 a second, 10 after two
+/// minutes, 5 with nobody watching. 0 for no hold.
 double behindPeriod(double now) {
     if (anvil_screen_away()) return kAwayPeriod;
-    return anvil_behind_seconds(now) >= kBehindLongAfter ? kBehindLongPeriod : kBehindPeriod;
+    const double behind = anvil_behind_seconds(now);
+    if (behind < kBehindGrace) return 0.0;
+    return behind >= kBehindLongAfter ? kBehindLongPeriod : kBehindPeriod;
 }
 double   g_ownEma       = 0.0;     // smoothed own frame time, for the pacing choice
 double   g_presentEma   = 0.0;     // smoothed time between the game's own presents
@@ -4620,7 +4627,7 @@ void hookedPresentDrawable(id self, SEL _cmd, id drawable) {
             saidLong = false;
         }
         const double due = lastBehind + period;
-        if (due > callAt && due < callAt + period + 0.001) {
+        if (period > 0.0 && due > callAt && due < callAt + period + 0.001) {
             sleepUntil(due);
             g_hookWaitSec += CACurrentMediaTime() - callAt;
         }
