@@ -272,6 +272,11 @@ enum Learn {
         case "level:full": return "the game's own look (Full)"
         case "reflections": return "its reflections"
         case "resolution:full": return "full resolution"
+        case "detail": return "distant detail trimmed (a step)"
+        case "unreal:streaming": return "no garbage collection forced as the world streams out"
+        case "unreal:dynamicres": return "dynamic resolution"
+        case "unreal:pipelines": return "pipelines prepared in the background after a second"
+        case "unreal:asyncloading": return "loading on its own thread"
         case "raytraced:reflections": return "ray-traced reflections"
         case "raytraced:shadows": return "ray-traced shadows"
         case "raytraced:ao": return "ray-traced ambient occlusion"
@@ -369,6 +374,31 @@ enum UnrealConfig {
         guard updated != text else { return nil }
         guard DiskCache.writeReplacing(Data(updated.utf8), to: ini, durable: true) else { return nil }
         return "unreal: \(game.title) — its graphics-driver warning off (r.WarnOfBadDrivers=0 in its Engine.ini): the \"AMD driver\" Unreal checks is D3DMetal, which isn't on its list and has nothing to update"
+    }
+
+    /// A key's value in the [SystemSettings] section of an ini; nil when absent.
+    static func systemValue(_ key: String, in text: String) -> String? {
+        var inside = false
+        for raw in text.components(separatedBy: "\n") {
+            let line = raw.hasSuffix("\r") ? String(raw.dropLast()) : raw
+            if line.hasPrefix("[") { inside = line.trimmingCharacters(in: .whitespaces) == "[SystemSettings]"; continue }
+            if inside, line.lowercased().hasPrefix(key.lowercased() + "=") { return String(line.dropFirst(key.count + 1)) }
+        }
+        return nil
+    }
+
+    /// The keys taken out of the [SystemSettings] section of an ini; the rest of the file as it was.
+    static func removingSystem(_ keys: Set<String>, in text: String) -> String {
+        guard !keys.isEmpty else { return text }
+        let newline = text.contains("\r\n") ? "\r\n" : "\n"
+        var inside = false
+        let lowered = Set(keys.map { $0.lowercased() })
+        let kept = text.components(separatedBy: newline).filter { line in
+            if line.hasPrefix("[") { inside = line.trimmingCharacters(in: .whitespaces) == "[SystemSettings]"; return true }
+            guard inside, let eq = line.firstIndex(of: "=") else { return true }
+            return !lowered.contains(line[..<eq].lowercased())
+        }
+        return kept.joined(separator: newline)
     }
 
     /// `key=value` in the [SystemSettings] section of an ini, added or changed; the rest of the file as it was.

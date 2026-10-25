@@ -324,6 +324,8 @@ struct GameDetailView: View {
 
     @ViewBuilder
     private var performance: some View {
+        OptimizeSection(gameID: gameID)
+
         AutoTuneSection(gameID: gameID)
 
         LearnSection(gameID: gameID)
@@ -402,6 +404,8 @@ struct GameDetailView: View {
         LookCheckSection(gameID: gameID)
 
         GameUpscalerSection(gameID: gameID)
+
+        UnrealTuningSection(gameID: gameID)
 
         SwiftUI.Section("Upscaling") {
             UpscalerEditor(config: Binding(

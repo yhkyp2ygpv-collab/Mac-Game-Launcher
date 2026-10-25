@@ -271,6 +271,14 @@ extension GraphicsPrep {
         return memory?[gameID.uuidString]
     }
 
+    /// How long a prep takes on this Mac: the longest of those kept, for a game never prepared — about 3 s on a base M4
+    /// (24 October). Nil before the first.
+    nonisolated static func longestSeconds() -> Double? {
+        lock.lock(); defer { lock.unlock() }
+        load()
+        return memory?.values.filter { $0.status == .ready && $0.seconds > 0 }.map(\.seconds).max()
+    }
+
     nonisolated static func keep(_ prep: GraphicsPrep, gameID: UUID) {
         lock.lock(); defer { lock.unlock() }
         load()

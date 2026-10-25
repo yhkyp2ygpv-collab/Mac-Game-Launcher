@@ -65,12 +65,16 @@ enum GameUpscaler {
 
     /// How a game's own quality settings are kept, for a game whose settings Anvil knows (Game.gameGraphics).
     ///
-    /// For an even 80: after each session that held 80 fps or more less than 80% of the time, the setting that costs
-    /// the most frame time for the least to see goes a step lower — never below High, its textures never — and after
-    /// one with plenty to spare the last one lowered goes back up. As set: exactly as in the game's menu.
+    /// For an even 80: after each session that held 80 fps or more less than 80% of the time, its distant detail is
+    /// trimmed a step (`detailLevels`), and once that's at its last, the setting that costs the most frame time for the
+    /// least to see goes a step lower — never below High, its textures never — and after one with plenty to spare the
+    /// last change goes back. Keep its settings: its menu's settings exactly, with only the distant detail trimmed. As
+    /// set: exactly as in the game's menu, nothing trimmed.
     enum Graphics: String, Codable, CaseIterable, Identifiable {
-        case automatic, asSet
+        case automatic, keepSettings, asSet
         var id: String { rawValue }
+        /// Whether its distant detail may be trimmed for 80.
+        var trimsDetail: Bool { self != .asSet }
     }
 
     /// A game's own ray-traced effects, for a game whose settings Anvil knows (Game.gameRayTracing).
@@ -141,6 +145,9 @@ enum GameUpscaler {
         var rayTracingSwitches: [(effect: String, key: String)] = []
         var rayTracingGroups: [String] = []
         var rayReconstructionKey: String? = nil
+        /// Its distant detail trimmed for an even 80, a step at a time: Unreal's own console settings, written to the
+        /// [SystemSettings] of its Engine.ini — which come after its quality groups, so its menu's settings stay as set.
+        var detailLevels: [[(String, String)]] = []
 
         func value(_ brand: Brand, _ quality: UpscaleQuality) -> String? {
             modes[brand]?.min { abs($0.scale - quality.renderScale) < abs($1.scale - quality.renderScale) }?.value
@@ -181,7 +188,9 @@ enum GameUpscaler {
         rayTracingSwitches: [("reflections", "bEnableRaytracingReflections"), ("shadows", "bEnableRaytracingShadows"),
                              ("ao", "bEnableRaytracingAO")],
         rayTracingGroups: ["sg.RaytracingQuality", "sg.RaytracingReflectionsQuality", "sg.RaytracingShadowsQuality"],
-        rayReconstructionKey: "NvidiaRayReconstruction")
+        rayReconstructionKey: "NvidiaRayReconstruction",
+        // Unreal's own distant detail, a step at a time (UnrealTuning.detailLevels).
+        detailLevels: UnrealTuning.detailLevels)
 
     static let profiles: [Profile] = [hogwarts]
 
@@ -334,6 +343,9 @@ enum GameUpscaler {
         var rayTracingChoice: RayTracing? = nil
         var rayTracingByAnvil: Bool? = nil
         var rayTracingLeft: Bool? = nil
+        /// The step of distant detail trimmed for 80 Anvil last wrote (0 for none), and the next start's.
+        var detail: Int? = nil
+        var detailNext: Int? = nil
     }
 
     /// 3 since 0.64: a record of 2 stepped Automatic's quality up from frames the game made between its own, counted
@@ -663,6 +675,9 @@ enum GameUpscaler {
             lines += rt.lines
         }
 
+        // Its distant detail, trimmed for 80 as far as the sessions have taken it (Engine.ini, its own file).
+        if !profile.detailLevels.isEmpty { lines += detail(game, in: container, profile: profile, record: &r) }
+
         // The same changes in each copy: the ini, and each options save.
         func applied(_ t: String) -> String {
             var out = keys.isEmpty ? t : setting(keys, in: profile.section, of: t)
@@ -690,6 +705,47 @@ enum GameUpscaler {
         }
         save(r, for: game)
         return lines
+    }
+
+    // MARK: Distant detail
+
+    /// Its distant detail at the step for this start, in the [SystemSettings] of its Engine.ini — none of it with its
+    /// graphics Exactly As Set. A value the player put there themselves (none of Anvil's steps) is theirs: left alone.
+    static func detail(_ game: Game, in container: Container, profile: Profile, record r: inout Record) -> [String] {
+        guard let folder = UnrealConfig.folder(for: game, in: container) else { return [] }
+        let ini = folder.appendingPathComponent("Engine.ini")
+        let text = (try? String(contentsOf: ini, encoding: .utf8)) ?? ""
+        // Held at its step while Unreal Engine tuning has a frame-rate trial on, its next step kept for after.
+        let held = UnrealTuning.frameRateTrial(game)
+        let level = game.gameGraphics.trimsDetail ? min(max((held ? nil : r.detailNext) ?? r.detail ?? 0, 0), profile.detailLevels.count) : 0
+        if !held { r.detailNext = nil }
+        let keys = Set(profile.detailLevels.flatMap { $0.map(\.0) })
+        let ours = Set(profile.detailLevels.flatMap { $0.map { "\($0.0)=\($0.1)" } })
+        // The player's own: a key of these set to something none of Anvil's steps writes.
+        let theirs = keys.filter { k in UnrealConfig.systemValue(k, in: text).map { !ours.contains("\(k)=\($0)") } ?? false }
+        var updated = text
+        if level > 0 {
+            for (k, v) in profile.detailLevels[level - 1] where !theirs.contains(k) { updated = UnrealConfig.settingSystem(k, to: v, in: updated) }
+        } else {
+            updated = UnrealConfig.removingSystem(keys.subtracting(theirs), in: updated)
+        }
+        let was = r.detail ?? 0
+        r.detail = level
+        guard updated != text else {
+            return level > 0 ? ["detail for 80: distant detail trimmed, step \(level) of \(profile.detailLevels.count) — its own settings as they are"] : []
+        }
+        guard DiskCache.writeReplacing(Data(updated.utf8), to: ini, durable: true) else {
+            return ["detail for 80: its Engine.ini couldn't be written — its detail as the game has it"]
+        }
+        if level == 0 { return was > 0 ? ["detail for 80: distant detail as the game has it again"] : [] }
+        let step = Dictionary(uniqueKeysWithValues: profile.detailLevels[level - 1])
+        return ["detail for 80: distant detail trimmed, step \(level) of \(profile.detailLevels.count) — simpler models of distant things sooner (×\(step["r.StaticMeshLODDistanceScale"] ?? "-")), distant foliage's too (×\(step["foliage.LODDistanceScale"] ?? "-")), the smallest things left out of the shadows; its own settings as they are"]
+    }
+
+    /// Learn's part for a start's distant detail ("detail=2", its step), none at its own.
+    static func detailPart(_ game: Game) -> [String] {
+        guard let d = record(for: game)?.detail, d > 0 else { return [] }
+        return ["detail=\(d)"]
     }
 
     // MARK: Ray tracing
@@ -854,7 +910,7 @@ enum GameUpscaler {
 
     /// What the session showed: an upscaler the game didn't take, one changed in its menu, and — for Automatic — the
     /// quality for its next start, from how it ran. The log's lines.
-    static func afterSession(_ game: Game, in container: Container, play: [FrameWindow]) -> [String] {
+    static func afterSession(_ game: Game, in container: Container, play: [FrameWindow], holdSteps: Bool = false) -> [String] {
         guard let profile = profile(for: game), var r = record(for: game), let wrote = r.wrote,
               let now = inGame(game, in: container) else { return [] }
         var lines: [String] = []
@@ -896,13 +952,20 @@ enum GameUpscaler {
         r.note = "\(now.text) last session."
         // For an even 80: a step at a time, from how much of the session it held 80 or more.
         let groups = gameText(game, in: container, profile: profile).map { Learn.scalability(in: $0) } ?? [:]
-        let at80 = shareAt80(play)
+        let at80 = shareAt80(play, goal: Double(UnrealTuning.goal(of: game)))
         let effective = (r.graphicsSet ?? [:]).merging(r.graphicsNext ?? [:]) { _, next in next }
-        if let step = tuneStep(at80: at80.share, seconds: at80.seconds, quality: game.gameUpscalerQuality == nil ? r.autoQuality : nil,
+        // A session with a frame-rate trial of Unreal Engine tuning on is that trial's to judge: no even-80 step from it,
+        // and a step decided before it waits for a session that shows how the game runs after the verdict.
+        if holdSteps {
+            r.detailNext = nil
+            lines.append("for an even 80: no step from this session — Unreal Engine tuning had a frame-rate trial on")
+        }
+        if !holdSteps, let step = tuneStep(at80: at80.share, seconds: at80.seconds, quality: game.gameUpscalerQuality == nil ? r.autoQuality : nil,
                                graphics: game.gameGraphics == .automatic ? groups.merging(effective) { _, set in set } : nil,
                                lowered: r.lowered ?? [], set: effective, before: r.graphicsBefore ?? [:], profile: profile,
-                               rayTracing: rayTracingTuning(game, profile: profile, record: r, now: now)) {
-            let held = String(format: "%.0f%% of its play at 80 fps or more", at80.share * 100)
+                               rayTracing: rayTracingTuning(game, profile: profile, record: r, now: now),
+                               detail: game.gameGraphics.trimsDetail && !profile.detailLevels.isEmpty ? (r.detailNext ?? r.detail ?? 0) : nil) {
+            let held = String(format: "%.0f%% of its play at %d fps or more", at80.share * 100, UnrealTuning.goal(of: game))
             switch step {
             case .quality(let to):
                 let from = r.autoQuality
@@ -921,6 +984,12 @@ enum GameUpscaler {
                 let list = changes.map { "\(groupName($0.key)) \(levelName($0.value))" }.joined(separator: ", ")
                 lines.append("graphics for an even 80: \(list) from its next start — \(held), short of the 80% it's held to")
                 r.note = "\(held) last session — \(list) from its next start, for an even 80. Exactly As Set in its menu keeps its own."
+            case .detail(let level):
+                r.detailNext = level
+                lines.append(level > (r.detail ?? 0)
+                             ? "detail for 80: distant detail trimmed to step \(level) of \(profile.detailLevels.count) from its next start — \(held), its own settings as they are"
+                             : "detail for 80: distant detail back to step \(level) from its next start — \(held)")
+                r.note = "\(held) last session — distant detail at step \(level) of \(profile.detailLevels.count) from its next start."
             case .rayTracing(let on):
                 r.rayTracingByAnvil = on ? true : nil
                 lines.append(on ? "ray tracing: its reflections on from its next start — \(held), room to spare"
@@ -953,12 +1022,12 @@ enum GameUpscaler {
 
     /// How much of a session's play was shown at an even 80 or more — every frame shown, the game's made ones and
     /// Anvil's too, as the player saw it — and how long it played.
-    static func shareAt80(_ play: [FrameWindow]) -> (share: Double, seconds: Double) {
+    static func shareAt80(_ play: [FrameWindow], goal: Double = 80) -> (share: Double, seconds: Double) {
         let seconds = play.reduce(0) { $0 + $1.seconds }
         guard seconds > 0 else { return (0, 0) }
         let held = play.filter { w in
             let shown = w.displayed / max(0.05, 1 - (w.generatedShare ?? 0))
-            return shown >= 78
+            return shown >= goal - 2
         }.reduce(0) { $0 + $1.seconds }
         return (held / seconds, seconds)
     }
@@ -969,6 +1038,8 @@ enum GameUpscaler {
         case raise(String, Int)
         /// Automatic's ray-traced reflections on or off.
         case rayTracing(Bool)
+        /// Its distant detail trimmed to this step (0, none).
+        case detail(Int)
     }
 
     /// The next step for an even 80, from a session of five minutes or more: under 80% of it at 80 or more, quality to
@@ -978,15 +1049,18 @@ enum GameUpscaler {
     /// `rayTracing`, for Automatic's ray tracing: whether its reflections are on by Anvil, and whether they could be
     /// (traced in hardware, offered by D3DMetal, off in its menu). Off is the first step down; on the last step up,
     /// once quality is at its sharpest with nothing lowered.
+    /// `detail`: the step of distant detail trimmed now, where it may be — one more after quality, before any setting
+    /// goes lower; one fewer once nothing's lowered.
     static func tuneStep(at80: Double, seconds: Double, quality: UpscaleQuality?, graphics: [String: Int]?, lowered: [String],
                          set: [String: Int], before: [String: Int], profile: Profile,
-                         rayTracing: (anvilOn: Bool, canAdd: Bool)? = nil) -> TuneStep? {
+                         rayTracing: (anvilOn: Bool, canAdd: Bool)? = nil, detail: Int? = nil) -> TuneStep? {
         guard seconds >= 300 else { return nil }
         if at80 < 0.80, rayTracing?.anvilOn == true { return .rayTracing(false) }
         if at80 < 0.80 {
             if let q = quality, let i = qualities.firstIndex(of: q), q != .performance, i + 1 < qualities.count {
                 return .quality(qualities[i + 1])
             }
+            if let d = detail, d < profile.detailLevels.count { return .detail(min(d + (at80 < 0.5 ? 2 : 1), profile.detailLevels.count)) }
             guard let graphics else { return nil }
             var changes: [String: Int] = [:]
             let wanted = at80 < 0.5 ? 2 : 1
@@ -998,6 +1072,7 @@ enum GameUpscaler {
         }
         if at80 >= 0.95 {
             if graphics != nil, let key = lowered.last, let v = set[key], v < (before[key] ?? 3) { return .raise(key, v + 1) }
+            if let d = detail, d > 0, lowered.isEmpty { return .detail(d - 1) }
             if let q = quality, let i = qualities.firstIndex(of: q), i > 0 { return .quality(qualities[i - 1]) }
             if let rt = rayTracing, !rt.anvilOn, rt.canAdd, lowered.isEmpty { return .rayTracing(true) }
         }

@@ -6,7 +6,7 @@ import Foundation
 /// always say exactly what it is — the point is to be able to tell whether the app
 /// in front of you includes a given fix.
 enum AnvilVersion {
-    static let current = "0.66.0"
+    static let current = "0.68.0"
     static let build = buildStamp
 
     /// Baked at compile time from the source's own modification date, so two builds
@@ -34,6 +34,50 @@ enum AnvilVersion {
     }
 
     static let releases: [Release] = [
+        Release(
+            version: "0.68.0",
+            date: "24 October 2026",
+            headline: "Optimize for This Mac: everything Anvil does for a game, done at the press of a button with a progress bar, then what it still needs. And Unreal Engine tuned for this Mac — for a game bought on Steam or Epic and installed through Anvil, the engine's own settings, never the game's files or its code, each tried for a session and kept only when it measurably helps, starting with the stutters of flying over an open world.",
+            fixed: [
+                "Rosetta's translations of a game's code were never kept. Since 21 October Anvil had asked Rosetta to keep them in a folder that was never made. It's made before every start now, and Optimize for This Mac shows how much is kept there.",
+                "Stutters every few seconds while travelling an Unreal game's world. Hogwarts Legacy ran smoothly in its castle and stuttered every 5–9 seconds for minutes at a time over its open world on a base M4 (24 October): 279 of its 319 stutters were its own work, with nothing read from disk and no shader compiled. Unreal 4 stops the game to collect its garbage each time a part of the world behind it streams out. Anvil now tries a session with that memory reclaimed at the game's regular collection instead, and keeps it only when the game's own stutters a minute of play fall by 15% or more, without it taking more than 1.5 GB more memory.",
+            ],
+            added: [
+                "Optimize for This Mac, at the top of a game's Performance tab: reading its program, Graphics Scan, Graphics Prep on this Mac's GPU, Microsoft's Visual C++ Runtime, Rosetta's and D3DMetal's caches, Unreal Engine tuning, memory, power and heat — done now rather than at its next start, with a progress bar and the time left — then what the game still needs, what to act on first. The game's own files are never changed.",
+                "Unreal Engine Tuning on an Unreal game's Performance tab: what's on trial, kept or dropped and what each measured, a switch, and Put Its Own Settings Back, which takes every setting of Anvil's out of the game's Engine.ini.",
+                "Only settings the game's own program has are written — Anvil looks for each one in it first — and its Engine.ini is backed up before the first change. A setting the player put there themselves is left as set.",
+                "A game that ends unexpectedly with a setting on trial starts without it next time, and that setting isn't tried again.",
+                "Asked once for each game, before its first tuned start. Only for games bought on Steam or Epic and installed through Anvil: a game added from its program isn't tuned. What's tuned is measured on this Mac and stays on it, with no connection needed.",
+                "Frame rate to hold, on Unreal Engine Tuning: the display's steady rate (80 on a 120 Hz MacBook Pro), or 60. What's tuned and judged for the game aims at it; pacing still goes higher where it can. In Hogwarts Legacy's session of 24 October at Ultra, 60 or more held 25% of its play where 80 held 2%.",
+                "Shorter stops at a game's start and on its loading screens, tried the same way. Every start of Hogwarts Legacy stopped for 5.1–5.3 s at its title screen with next to nothing read — the length of a limit, Unreal's time to prepare its pipelines before going on in the background — so Anvil tries a second, the rest in the background, kept only if the stop halves without more stutters from compiling shaders in play. Its loading screens stopped for 1.8–2.8 s as it read 0.7–1.5 GB at a fraction of the SSD's speed, so Anvil then tries Unreal's own loading thread, kept only if they stop for 30% less. One trial of each kind runs at a time: stutters, frame rate and loading.",
+                "Dynamic resolution, the second setting Unreal Engine tuning tries: the game draws fewer pixels in just the frames that would miss 80 — flying over Hogwarts Legacy's open world held 38–44 fps with the GPU 97–99% busy, where Hogsmeade and the castle ran 50–60 — and more where there's room, up to two-thirds of its window each way, sharper than its Performance upscaler's half. Its budget is a frame the game draws, for the frame rate it should hold: 33.3 ms for 60 with the game's own frame generation (30 drawn), 25 for 80; 16.7 and 12.5 without. Kept only if the game really changes the size it draws at — Anvil reads it from the passes it times — and holds its frame rate 10 points more of its play, or 10% more on average, without more of its own stutters. Distant detail and the other even-80 steps hold still while it's tried.",
+                "Distant detail for 80 for every Unreal game, not only Hogwarts Legacy: a step at a time after a session short of 80 fps, and a step back after one with room to spare. Distant Detail on its Performance tab leaves it as the game has it.",
+                "The Check-Up lists each tuned game and what's kept, and notices a game that rewrote its Engine.ini since — Anvil's settings go back in at its next start.",
+                "Learn counts each setting's cost in frame time, as it does the rest.",
+            ],
+            known: [
+                "Garbage collection left to the game's regular collection made no difference in Hogwarts Legacy (2.0 → 2.2 of its own stutters a minute, 24 October) and was dropped there by itself; its own stutters while flying are its own work.",
+                "Whether Hogwarts Legacy takes Unreal's dynamic resolution alongside its own upscalers is what its trial finds out.",
+                "A game's own stutters are counted over play in its world — stretches with most of its memory loaded — so time at a title screen or menu isn't. A session with under 10 minutes of that isn't judged; the setting stays on trial for the next.",
+                "Hogwarts Legacy's first trial is judged against its session of 24 October, when Anvil's own tests ran beside it for part of its play, so its stutters before may read slightly high.",
+            ]),
+        Release(
+            version: "0.67.0",
+            date: "24 October 2026",
+            headline: "Ultra kept closer to 80: a game's distant detail trimmed a step at a time where its frames are spent — distant things' simpler models a little sooner, the smallest things out of the shadows — with every setting in its menu left as set; and a black picture after a MacBook's lid opens put right by itself.",
+            fixed: [
+                "A picture left black with the game in front — after a MacBook's lid was opened on Hogwarts Legacy on 23 October, until it was switched away from and back to: when half the game's frames stop reaching the screen for ten seconds with it in front and the screen there, Guardian brings its window to the front again.",
+                "With the lid shut, a game held to 5 fps still kept the Mac working — it ran hot on 23 October, its lid closed on Hogwarts Legacy. After a minute with the screen locked or asleep it's held to 1 fps, and woken the moment the screen's back.",
+            ],
+            added: [
+                "Distant detail for 80, for a game whose settings Anvil knows: Hogwarts Legacy at Ultra on a base M4 spent 12 ms a frame drawing the scene at 756 × 492 and up to 8.6 ms on its shadow maps (23 October) — the number of things drawn, not pixels. After a session short of 80, three steps, one a session (two when under half): distant objects' simpler models sooner (×1.25, ×1.5, ×2), distant foliage's too, and the smallest things left out of the shadows. Unreal's own settings, written to its Engine.ini — after its quality groups, so its menu's settings stay as set — and taken back a step after a session with plenty to spare.",
+                "Graphics on The Game's Own Upscaler has a third choice: Keep Its Settings — every setting in its menu exactly as set, Ultra stays Ultra, with only its distant detail trimmed for 80. For an even 80 trims the distant detail first too, before any setting goes lower; Exactly As Set trims nothing.",
+                "Learn measures what each step of trimmed detail saves, as it does the game's settings.",
+            ],
+            known: [
+                "An even 80 at Ultra everywhere isn't promised: Hogwarts Legacy's heaviest scenes took 28–50 ms of a base M4's GPU a frame at Ultra on 23 October, where 80 with its own frame generation needs about 25. Trimmed detail takes some of that back; how much, the next sessions will say.",
+                "Trimmed distant detail can be seen: distant buildings and trees change to their simpler models a little nearer, and the smallest things cast no shadow.",
+            ]),
         Release(
             version: "0.66.0",
             date: "23 October 2026",

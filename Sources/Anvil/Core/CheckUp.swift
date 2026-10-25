@@ -86,12 +86,40 @@ final class CheckUp: ObservableObject {
         out += await engineChecks()
         out += leftoverChecks()
         out += sessionChecks()
+        out += unrealTuningChecks()
         tidyOfflineFlags()
         warmKeepRunning()
         items = out.sorted { ($0.state.rawValue, $0.title) < ($1.state.rawValue, $1.title) }
         let summary = items.filter { $0.state != .ok }.map { "\($0.state):\($0.id)" }
         AnvilLog.write("check-up: \(items.filter { $0.state == .ok }.count) fine"
                        + (summary.isEmpty ? "" : " [" + summary.joined(separator: ", ") + "]"))
+    }
+
+    // MARK: Unreal Engine tuning
+
+    /// Each game Anvil tunes Unreal Engine for (UnrealTuning): what's kept, on trial or dropped, and that its Engine.ini
+    /// still holds what its last start wrote — a game can rewrite the file; the next start puts it back.
+    private func unrealTuningChecks() -> [Item] {
+        var tuned: [String] = []
+        var missing: [String] = []
+        for game in Library.shared.games where game.unrealTuning && UnrealTuning.fromStore(game) {
+            guard let r = UnrealTuning.record(for: game), r.acknowledged != nil else { continue }
+            let states = UnrealTuning.tunings.compactMap { t in r.states[t.id].map { "\(t.title): \($0 == .notNeeded ? "not needed" : $0.rawValue)" } }
+            tuned.append("\(game.title) — " + (states.isEmpty ? "measuring how it runs first" : states.joined(separator: "; ")))
+            if let container = Library.shared.container(id: game.containerID),
+               let folder = UnrealConfig.folder(for: game, in: container),
+               let text = try? String(contentsOf: folder.appendingPathComponent("Engine.ini"), encoding: .utf8) {
+                // Each setting at one of the values its tuning writes (a budget differs with the game's own frame generation).
+                let wrote = UnrealTuning.tunings.filter { r.active.contains($0.id) }.flatMap(\.variants)
+                if Set(wrote.map(\.0)).contains(where: { k in !wrote.contains { $0.0 == k && $0.1 == UnrealConfig.systemValue(k, in: text) } }) {
+                    missing.append(game.title)
+                }
+            }
+        }
+        guard !tuned.isEmpty else { return [] }
+        let detail = tuned.joined(separator: ". ") + "."
+            + (missing.isEmpty ? "" : " \(missing.joined(separator: ", ")) rewrote its Engine.ini since: Anvil's settings go back in at its next start.")
+        return [Item(id: "unreal-tuning", state: .ok, title: "Unreal Engine tuned for this Mac", detail: detail)]
     }
 
     // MARK: The Mac

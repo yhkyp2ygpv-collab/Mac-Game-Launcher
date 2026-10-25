@@ -40,8 +40,12 @@ struct GameUpscalerSection: View {
                 }
                 if !profile.scalability.isEmpty {
                     Picker("Graphics", selection: binding(\.gameGraphics, game)) {
-                        Text("For an even 80 — the costliest a step lower until it holds").tag(GameUpscaler.Graphics.automatic)
+                        Text("For an even 80 — distant detail first, then the costliest a step lower").tag(GameUpscaler.Graphics.automatic)
+                        Text("Keep its settings — only distant detail trimmed for 80").tag(GameUpscaler.Graphics.keepSettings)
                         Text("Exactly as set in the game's menu").tag(GameUpscaler.Graphics.asSet)
+                    }
+                    if game.gameGraphics.trimsDetail, !profile.detailLevels.isEmpty, let d = record?.detailNext ?? record?.detail, d > 0 {
+                        LabeledContent("Distant detail trimmed", value: "step \(d) of \(profile.detailLevels.count)").font(.callout)
                     }
                     if game.gameGraphics == .automatic, let lowered = record?.lowered, !lowered.isEmpty {
                         LabeledContent("Lowered for an even 80", value: lowered.compactMap { key in
@@ -81,7 +85,7 @@ struct GameUpscalerSection: View {
                     note("Frame generation on Automatic is the game's own: \(profile.ownFrameGenTitle), made from the game's own motion vectors and depth — what Anvil's Smooth Motion can only estimate from the finished pictures. Anvil's then stands down and only takes the picture to the display, a millisecond or so of the GPU's time a frame where Smooth Motion with FSR 3 took five to eight. In Hogwarts Legacy at Ultra on a base M4 (22 October): 67 fps on average with its own frame generation and its FSR 3 at Performance; 48 with Smooth Motion and DLSS at Performance.")
                 }
                 if !profile.scalability.isEmpty {
-                    note("Graphics for an even 80: after each session of five minutes or more that held 80 fps or more less than 80% of the time, quality goes to Performance first, then the setting that costs the most frame time for the least to see goes a step lower — Effects, then Fog and light shafts, Shadows, Foliage, Post-processing — never below High. Textures, view distance and shading are never touched. After a session that held 80 for 95% of it, the last one lowered goes back up. Anything you set in the game's own menu stays as you set it.")
+                    note("Graphics for an even 80: after each session of five minutes or more that held 80 fps or more less than 80% of the time, quality goes to Performance first, then distant detail is trimmed a step — distant things' simpler models a little sooner, distant foliage's too, and the smallest things left out of the shadows, three steps in all — and only then does the setting that costs the most frame time for the least to see go a step lower: Effects, then Fog and light shafts, Shadows, Foliage, Post-processing, never below High. Textures, view distance and shading are never touched. After a session that held 80 for 95% of it, the last change goes back. Keep Its Settings leaves every setting in its menu as you set it — Ultra stays Ultra — and trims only the distant detail. Anything you set in the game's own menu stays as you set it.")
                 }
                 if !profile.rayTracingSwitches.isEmpty {
                     note(MetalCapability.current.hardwareRayTracing

@@ -205,8 +205,10 @@ final class Launcher: ObservableObject {
         if container.rosettaAOT {
             // Persisting translated code removes the first-run JIT hitching that reads
             // as "stutter" on launch and on first entry to a new area.
+            // The folder made first: Rosetta doesn't make it, and from 21 October none was ever there to keep anything in.
             env["ROSETTA_AOT_CACHE_ENABLED"] = "1"
-            env["ROSETTA_AOT_CACHE_PATH"] = container.shaderCacheURL.appendingPathComponent("rosetta").path
+            env["ROSETTA_AOT_CACHE_PATH"] = OptimizePass.rosettaFolder(container)?.url.path
+                ?? container.shaderCacheURL.appendingPathComponent("rosetta").path
         }
         // WINE_CPU_TOPOLOGY is a Proton variable, not a Wine one, and this build has
         // no equivalent — core count is left to the scheduler.
@@ -715,6 +717,13 @@ final class Launcher: ObservableObject {
         RuntimeManager.support.appendingPathComponent("game.log")
     }
 
+    /// game.old.log, then game.log: every session still kept, oldest first.
+    nonisolated static func gameLogs() -> String {
+        let old = (try? String(contentsOf: RuntimeManager.support.appendingPathComponent("game.old.log"), encoding: .utf8)) ?? ""
+        let now = (try? String(contentsOf: gameLogURL, encoding: .utf8)) ?? ""
+        return old + (old.isEmpty || old.hasSuffix("\n") ? "" : "\n") + now
+    }
+
     /// One line into game.log, after the session's header.
     private func appendGameLog(_ line: String) {
         let data = Data((line + "\n").utf8)
@@ -1094,8 +1103,21 @@ final class Launcher: ObservableObject {
             AnvilLog.write("  " + line)
         }
         // An Unreal game: its driver warning off, which D3DMetal always trips (UnrealConfig).
-        if GameAnalysis.cached(for: game.executableURL)?.engine == .unreal, let line = UnrealConfig.prepare(game, in: container) {
-            AnvilLog.write("  " + line)
+        if GameAnalysis.cached(for: game.executableURL)?.engine == .unreal {
+            if let line = UnrealConfig.prepare(game, in: container) { AnvilLog.write("  " + line) }
+            // Unreal Engine's own settings tuned for this Mac, for a game from Steam or Epic installed through Anvil.
+            let gameID = game.id
+            for line in UnrealTuning.prepare(game, in: container, hasProfile: GameUpscaler.profile(for: game) != nil,
+                                             context: .init(ownFrames: GameUpscaler.inGame(game, in: container)?.frameGen != nil,
+                                                            goal: UnrealTuning.goal(of: game)),
+                                             logs: { Self.gameLogs() }, confirm: UnrealTuning.askFirst,
+                                             declined: {
+                                                 guard var g = Library.shared.games.first(where: { $0.id == gameID }) else { return }
+                                                 g.unrealTuning = false
+                                                 Library.shared.update(g)
+                                             }) {
+                AnvilLog.write("  unreal tuning: " + line)
+            }
         }
         // An Epic game started from its .exe is not signed in, and cannot see the DLC
         // its owner has. Its launcher's legendary gives the arguments Epic's own
@@ -1213,6 +1235,8 @@ final class Launcher: ObservableObject {
         if GameUpscaler.inGame(game, in: container)?.frameGen != nil { learnParts.append(Learn.gamesOwnFrames) }
         // And its ray-traced effects that run, for their cost to be learned apart from the quality groups.
         learnParts += GameUpscaler.rayTracedParts(game, in: container, dxr: Self.rayTracing(for: game, container: container).on)
+        learnParts += GameUpscaler.detailPart(game)
+        learnParts += UnrealTuning.learnParts(game)
         appendGameLog(Learn.setupLine(learnParts))
         let logStart = (try? FileManager.default.attributesOfItem(atPath: Self.gameLogURL.path))?[.size] as? UInt64 ?? 0
         if let line = tuning.logLine {
@@ -1857,12 +1881,32 @@ final class Launcher: ObservableObject {
             } }
         }
 
-        // The game's own upscaler: what the session showed, and Automatic's quality for its next start (GameUpscaler).
+        // The game's own upscaler: what the session showed, and Automatic's quality for its next start (GameUpscaler) —
+        // nothing stepped from a session Unreal Engine tuning had a frame-rate trial on, read before its verdict changes it.
+        let frameRateTrial = UnrealTuning.frameRateTrial(session.game)
         if played >= 60, !wasTest, GameUpscaler.profile(for: session.game) != nil {
             let game = session.game, container = session.container, log = Self.gameLogURL
             Task.detached(priority: .utility) {
                 let play = FrameLog.lastSession(of: game.title, in: log).map { Gameplay.split($0.windows).play } ?? []
-                for line in GameUpscaler.afterSession(game, in: container, play: play) { AnvilLog.write("\(game.title): " + line) }
+                for line in GameUpscaler.afterSession(game, in: container, play: play, holdSteps: frameRateTrial) {
+                    AnvilLog.write("\(game.title): " + line)
+                }
+            }
+        }
+
+        // Unreal Engine tuning: a trial's verdict from the session, or how the game runs without one. A trial on when the
+        // game ended unexpectedly — not closed by the player, not stopped from outside — ends there.
+        if !wasTest, UnrealTuning.record(for: session.game)?.acknowledged != nil {
+            let status = session.process.terminationStatus
+            let outside = session.process.terminationReason == .uncaughtSignal && status == SIGKILL
+            let badly: String? = (userClosed || outside || status == 0) ? nil
+                : session.process.terminationReason == .uncaughtSignal ? "signal \(status)" : "code \(status)"
+            let game = Library.shared.games.first(where: { $0.id == session.game.id }) ?? session.game, log = Self.gameLogURL
+            Task.detached(priority: .utility) {
+                for line in UnrealTuning.afterSession(game, log: log, endedBadly: badly,
+                                                      hasProfile: GameUpscaler.profile(for: game) != nil) {
+                    AnvilLog.write("unreal tuning: \(game.title): " + line)
+                }
             }
         }
 

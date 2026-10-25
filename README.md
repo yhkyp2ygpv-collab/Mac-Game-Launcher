@@ -7,7 +7,7 @@ Anvil fixes that. It installs and runs Windows games on Apple silicon Macs, then
 one while you play: sharper upscaling, extra frames in heavy scenes, even frame pacing,
 working controllers and surround sound.
 
-### [⬇ Download Anvil 0.66.0](https://github.com/yhkyp2ygpv-collab/Mac-Game-Launcher/releases/latest)
+### [⬇ Download Anvil 0.68.0](https://github.com/yhkyp2ygpv-collab/Mac-Game-Launcher/releases/latest)
 
 Free · Apple silicon (M1 or later) · macOS 14 Sonoma or newer · **Open source**
 
@@ -91,7 +91,7 @@ feedback form below.</sub>
 
 ## Install
 
-1. Download `Anvil-0.66.0.dmg` from
+1. Download `Anvil-0.68.0.dmg` from
    [Releases](https://github.com/yhkyp2ygpv-collab/Mac-Game-Launcher/releases/latest).
 2. Open it and drag **Anvil** into **Applications**.
 3. Open Anvil. If macOS says it "cannot verify" Anvil, go to
@@ -141,7 +141,36 @@ Please leave out personal details such as account names or email addresses.
   release lists the DMG's SHA-256, so you can check your download.
 - **No warranty.** Anvil is provided "as is"; see [LICENSE.txt](LICENSE.txt).
 
-## What's new in 0.66.0
+## What's new in 0.68.0
+
+- **Optimize for This Mac.** One button at the top of a game's Performance tab does now everything Anvil would do at
+  its next start — reading its program, Graphics Scan, Graphics Prep on your GPU, Microsoft's Visual C++ Runtime,
+  Rosetta's and D3DMetal's caches, Unreal Engine tuning, memory, power and heat — with a progress bar and the time left,
+  then lists what the game still needs.
+- **Unreal Engine tuned for this Mac.** For an Unreal game bought on Steam or Epic and installed through Anvil, Anvil
+  sets a few of the engine's own settings in the game's Engine.ini — never its files or its code. Each is tried for a
+  session and kept only if it measurably helped; only settings the game's program has are written, the file is backed
+  up first, and **Put Its Own Settings Back** undoes it all. Anvil asks once per game before it starts, and games added
+  from their .exe aren't tuned.
+- **Four tunings, each judged on your Mac:** reclaiming memory at the game's regular collection rather than each time
+  part of the world streams out (for stutters while flying), dynamic resolution (fewer pixels only in the frames that
+  would miss), preparing pipelines in the background after a second (for the title-screen freeze), and Unreal's own
+  loading thread (for loading screens). In Hogwarts Legacy the first three measured no better and were dropped on
+  their own: its stutters didn't fall, its own FSR 3 keeps the size it draws at fixed, and its 5.1-second start freeze
+  stayed 5.1 s. The loading thread is tried next.
+- **Frame rate to hold: 60 or the display's 80.** Everything Anvil tunes and judges for the game then aims at it.
+- **Distant detail for 80 in every Unreal game**, and the Check-Up lists what's tuned.
+
+## In 0.67.0 (first released in 0.68.0)
+
+- **Ultra, closer to 80.** After a session short of 80, Anvil trims a game's distant detail one step at a time:
+  distant objects' simpler models a little sooner, distant foliage's too, and the smallest things left out of the
+  shadows. The settings in the game's menu stay exactly as set.
+- **Keep Its Settings:** a new Graphics choice that keeps every menu setting as set and trims only distant detail.
+- **Fixed:** a black picture with the game in front after the lid opens now puts itself right, and a game behind a
+  closed lid is held to 1 fps after a minute.
+
+## In 0.66.0
 
 - **Full frame rate the moment a MacBook's lid opens on a game.** Anvil's hidden window had been taking the front after
   wake, which held the game at 10 fps until you switched away and back. It now hands the front straight back to the game.
@@ -324,6 +353,7 @@ version number at the bottom of the sidebar.
 
 Older versions stay available in case a new one doesn't suit a game:
 
+- [Anvil 0.66.0 (legacy)](https://github.com/yhkyp2ygpv-collab/Mac-Game-Launcher/releases/tag/v0.66.0)
 - [Anvil 0.65.0 (legacy)](https://github.com/yhkyp2ygpv-collab/Mac-Game-Launcher/releases/tag/v0.65.0)
 - [Anvil 0.64.0 (legacy)](https://github.com/yhkyp2ygpv-collab/Mac-Game-Launcher/releases/tag/v0.64.0)
 - [Anvil 0.63.0 (legacy)](https://github.com/yhkyp2ygpv-collab/Mac-Game-Launcher/releases/tag/v0.63.0)

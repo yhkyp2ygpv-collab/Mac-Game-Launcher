@@ -112,6 +112,25 @@ extern "C" bool anvil_game_in_front(void) {
     return g_inFront.load(std::memory_order_relaxed) && !g_screenAway.load(std::memory_order_relaxed);
 }
 extern "C" bool anvil_screen_away(void) { return g_screenAway.load(std::memory_order_relaxed); }
+// Since when the screen has been locked or asleep (0 while it's there).
+static std::atomic<double> g_awaySince{0.0};
+extern "C" double anvil_away_seconds(double now) {
+    const double since = g_awaySince.load(std::memory_order_relaxed);
+    return since > 0.0 && g_screenAway.load(std::memory_order_relaxed) ? now - since : 0.0;
+}
+
+/// The game's windows in front again, and the game the app in front: for frames that stopped reaching the screen with
+/// the game in front (Guardian), as after a MacBook's lid was opened on 23 October with the picture black.
+extern "C" void anvil_bring_window_front(void) {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        Class appClass = NSClassFromString(@"NSApplication");
+        if (!appClass) return;
+        NSApplication* app = [appClass sharedApplication];
+        for (NSWindow* w in app.windows) if (w.isVisible) [w orderFrontRegardless];
+        if ([app respondsToSelector:@selector(activate)]) [app performSelector:@selector(activate)];
+        else [app activateIgnoringOtherApps:YES];
+    });
+}
 /// How long the game has been behind another app or the screen away; 0 in front.
 extern "C" double anvil_behind_seconds(double now) {
     const double since = g_behindSince.load(std::memory_order_relaxed);
@@ -235,12 +254,13 @@ extern "C" void anvil_watch_front(void) {
         };
         void (^away)(bool) = ^(bool gone) {
             if (g_screenAway.exchange(gone) == gone) return;
+            g_awaySince.store(gone ? CACurrentMediaTime() : 0.0);
             if (gone) g_frontAtAway.store(g_inFront.load() || CACurrentMediaTime() - g_resignedAt.load() < 3.0);
             noteBehind();
             if (!gone && g_frontAtAway.exchange(false)) reclaimFront(app, path);
             if (!path) return;
             if (FILE* out = fopen(path, "a")) {
-                fprintf(out, gone ? "[anvil] the screen is locked or asleep — the game held to 5 fps until it's back\n"
+                fprintf(out, gone ? "[anvil] the screen is locked or asleep — the game held to 5 fps until it's back (1 fps after a minute)\n"
                                   : "[anvil] the screen is back\n");
                 fclose(out);
             }

@@ -94,6 +94,12 @@ struct Game: Identifiable, Codable, Hashable {
     var rayTracing: Bool?
     /// How its starts with no connection have gone here. See OfflineStarts.
     var offlineRecord: OfflineRecord?
+    /// For an Unreal game bought on Steam or Epic and installed through Anvil: Unreal Engine's own settings tuned for
+    /// this Mac, each tried for a session and kept only if it measurably helped. See UnrealTuning.
+    var unrealTuning: Bool = true
+    /// The frame rate it should hold, for what's tuned and judged for it: 60, or nil for the display's steady rate (80 on
+    /// a 120 Hz MacBook Pro). Pacing still goes higher where the game can. See UnrealTuning.goal.
+    var fpsGoal: Int?
 
     var executableURL: URL { URL(fileURLWithPath: executablePath) }
     var exists: Bool { FileManager.default.fileExists(atPath: executablePath) }

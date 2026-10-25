@@ -457,6 +457,12 @@ extension GraphicsScan {
     static func rescan(_ game: Game) async {
         guard let container = Library.shared.container(id: game.containerID),
               let runtime = RuntimeManager.shared.runtime(id: container.runtimeID) else { return }
+        await rescan(game, container: container, runtime: runtime)
+    }
+
+    /// The same, in a given setup on a given engine.
+    @MainActor
+    static func rescan(_ game: Game, container: Container, runtime: Runtime) async {
         let exe = game.executableURL, id = game.id
         let backend = game.backendOverride ?? container.backend
         let live = stored(gameID: id)?.live

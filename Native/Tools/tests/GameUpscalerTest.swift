@@ -296,6 +296,19 @@ struct GameUpscalerTest {
             var said = GameUpscaler.afterSession(g3, in: c3, play: short)
             check(GameUpscaler.record(for: g3)?.autoQuality == .performance && said.first?.contains("Performance from its next start") == true,
                   "0% at 80: Performance first (\(said.first ?? "-"))")
+            // 0.67: its distant detail trimmed first, a step at a time (two under half), before any setting goes lower.
+            _ = GameUpscaler.prepare(g3, in: c3, dlssReady: false, anvilFrameGen: true, anvilToDisplay: true, tier: .base)
+            said = GameUpscaler.afterSession(g3, in: c3, play: short)
+            check(GameUpscaler.record(for: g3)?.detailNext == 2 && said.first?.contains("distant detail trimmed to step 2 of 3") == true
+                  && GameUpscaler.record(for: g3)?.lowered?.isEmpty != false, "none of it at 80 at Performance: distant detail two steps, nothing lowered (\(said.first ?? "-"))")
+            let detailLines = GameUpscaler.prepare(g3, in: c3, dlssReady: false, anvilFrameGen: true, anvilToDisplay: true, tier: .base)
+            let engine3 = (try? String(contentsOf: config3.appendingPathComponent("Engine.ini"), encoding: .utf8)) ?? ""
+            check(UnrealConfig.systemValue("r.StaticMeshLODDistanceScale", in: engine3) == "1.5" && UnrealConfig.systemValue("r.Shadow.RadiusThreshold", in: engine3) == "0.05"
+                  && UnrealConfig.systemValue("foliage.LODDistanceScale", in: engine3) == "0.7" && detailLines.contains { $0.contains("step 2 of 3") },
+                  "step 2 in its Engine.ini's [SystemSettings], said at the start")
+            check(groups3()["sg.EffectsQuality"] == 3 && GameUpscaler.detailPart(g3) == ["detail=2"], "its own settings as they were; Learn's part detail=2")
+            said = GameUpscaler.afterSession(g3, in: c3, play: window(85, gpu: 99, seconds: 240) + window(65, gpu: 99, seconds: 160))
+            check(GameUpscaler.record(for: g3)?.detailNext == 3, "60% at 80: the last step (\(said.first ?? "-"))")
             _ = GameUpscaler.prepare(g3, in: c3, dlssReady: false, anvilFrameGen: true, anvilToDisplay: true, tier: .base)
             said = GameUpscaler.afterSession(g3, in: c3, play: window(85, gpu: 99, seconds: 240) + window(65, gpu: 99, seconds: 160))
             check(GameUpscaler.record(for: g3)?.lowered == ["sg.EffectsQuality"] && said.first?.contains("Effects High from its next start") == true,
@@ -323,6 +336,23 @@ struct GameUpscalerTest {
             _ = GameUpscaler.prepare(asSet, in: c3, dlssReady: false, anvilFrameGen: true, anvilToDisplay: true, tier: .base)
             check(groups3()["sg.EffectsQuality"] == 3 && iniGroups3()["sg.EffectsQuality"] == 3 && (GameUpscaler.record(for: g3)?.lowered ?? []).isEmpty,
                   "Exactly As Set: Effects back to Ultra")
+            let engineAsSet = (try? String(contentsOf: config3.appendingPathComponent("Engine.ini"), encoding: .utf8)) ?? ""
+            check(UnrealConfig.systemValue("r.StaticMeshLODDistanceScale", in: engineAsSet) == nil && UnrealConfig.systemValue("r.Shadow.RadiusThreshold", in: engineAsSet) == nil
+                  && GameUpscaler.record(for: g3)?.detail == 0, "…and its distant detail as the game has it, Anvil's lines gone from its Engine.ini")
+            // Keep its settings: detail only, its groups never.
+            var keep = g3; keep.gameGraphics = .keepSettings
+            check(GameUpscaler.tuneStep(at80: 0.3, seconds: 600, quality: .performance, graphics: nil, lowered: [], set: [:], before: [:], profile: h, detail: 3) == nil
+                  && GameUpscaler.tuneStep(at80: 0.3, seconds: 600, quality: .performance, graphics: nil, lowered: [], set: [:], before: [:], profile: h, detail: 1) == .detail(3),
+                  "Keep Its Settings: detail stepped, and once at its last, nothing lowered")
+            check(GameUpscaler.tuneStep(at80: 0.97, seconds: 600, quality: .performance, graphics: nil, lowered: [], set: [:], before: [:], profile: h, detail: 2) == .detail(1),
+                  "plenty to spare: detail a step back before quality goes up")
+            // A value of its own in Engine.ini: the player's, left.
+            try? Data("[SystemSettings]\r\nr.Shadow.RadiusThreshold=0.02\r\n".utf8).write(to: config3.appendingPathComponent("Engine.ini"))
+            if var rk = GameUpscaler.record(for: keep) { rk.detailNext = 1; GameUpscaler.save(rk, for: keep) }
+            _ = GameUpscaler.prepare(keep, in: c3, dlssReady: false, anvilFrameGen: true, anvilToDisplay: true, tier: .base)
+            let engineTheirs = (try? String(contentsOf: config3.appendingPathComponent("Engine.ini"), encoding: .utf8)) ?? ""
+            check(UnrealConfig.systemValue("r.Shadow.RadiusThreshold", in: engineTheirs) == "0.02" && UnrealConfig.systemValue("r.StaticMeshLODDistanceScale", in: engineTheirs) == "1.25"
+                  && engineTheirs.contains("\r\n"), "a value the player set themselves kept; the rest of step 1 written, line endings as they were")
             // 0.63's record that stepped up from made frames: back to Performance once.
             if var r3 = GameUpscaler.record(for: g3) {
                 r3.version = 2; r3.autoQuality = .balanced; r3.frameGenOnByAnvil = true

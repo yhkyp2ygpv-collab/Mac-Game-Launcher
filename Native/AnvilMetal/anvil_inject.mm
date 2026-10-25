@@ -53,6 +53,8 @@ extern "C" void anvil_watch_front(void);
 extern "C" bool anvil_game_in_front(void);
 extern "C" bool anvil_screen_away(void);
 extern "C" double anvil_behind_seconds(double now);
+extern "C" double anvil_away_seconds(double now);
+extern "C" void anvil_bring_window_front(void);
 extern "C" void anvil_ensure_setup(const char* where);
 extern "C" void anvil_screens_offer(id<MTLCommandBuffer> cb, id<MTLTexture> frame);
 
@@ -901,11 +903,13 @@ constexpr double kBehindLongAfter = 120.0, kBehindLongPeriod = 1.0 / 10.0, kAway
 // 45 minutes of play — the Finder's desktop or Anvil's hidden window, clicked by a stray tap — and each dropped it to
 // 30 fps there and then, seen as a stutter.
 constexpr double kBehindGrace = 2.0;
+// The screen away a minute: 1 fps. On 23 October the Mac ran hot with its lid shut on Hogwarts Legacy held to 5.
+constexpr double kAwayLongAfter = 60.0, kAwayLongPeriod = 1.0;
 
 /// One frame in how long, behind another app: none held the first two seconds, then 30 a second, 10 after two
 /// minutes, 5 with nobody watching. 0 for no hold.
 double behindPeriod(double now) {
-    if (anvil_screen_away()) return kAwayPeriod;
+    if (anvil_screen_away()) return anvil_away_seconds(now) >= kAwayLongAfter ? kAwayLongPeriod : kAwayPeriod;
     const double behind = anvil_behind_seconds(now);
     if (behind < kBehindGrace) return 0.0;
     return behind >= kBehindLongAfter ? kBehindLongPeriod : kBehindPeriod;
@@ -4214,6 +4218,21 @@ void guardianCheckUp(double now) {
         diag("[anvil] guardian: %llu of the game's last %llu frames didn't reach the screen", (unsigned long long)dn,
              (unsigned long long)dr);
     }
+    // Half of them or more, with the game in front and the screen there: its window brought to the front again, at
+    // most twice a minute — a picture left black after a MacBook's lid was opened (23 October) needed the game switched
+    // away from and back to.
+    // In front for the whole ten seconds: frames drawn behind another app aren't shown, and aren't meant to be.
+    static double frontFixAt = -1e9;
+    static bool frontAtLastCheck = false;
+    const bool frontAll = frontAtLastCheck && anvil_game_in_front() && !anvil_screen_away();
+    frontAtLastCheck = anvil_game_in_front() && !anvil_screen_away();
+    if (frontAll && dr >= 60 && dn * 2 >= dr && now - frontFixAt >= 30.0) {
+        frontFixAt = now;
+        ++g_guardFixes;
+        anvil_bring_window_front();
+        diag("[anvil] guardian: %llu of the game's last %llu frames didn't reach the screen with it in front — its window "
+             "brought to the front again", (unsigned long long)dn, (unsigned long long)dr);
+    }
     // Where the game read its large data files, kept for the memory warm-up at its next start: a minute at
     // a time, off the game's thread.
     static double heatAt = 0.0;
@@ -4628,7 +4647,12 @@ void hookedPresentDrawable(id self, SEL _cmd, id drawable) {
         }
         const double due = lastBehind + period;
         if (period > 0.0 && due > callAt && due < callAt + period + 0.001) {
-            sleepUntil(due);
+            // A second at a time with the screen away: woken as soon as it's back.
+            if (period >= kAwayLongPeriod) {
+                while (CACurrentMediaTime() < due && anvil_screen_away()) usleep(20000);
+            } else {
+                sleepUntil(due);
+            }
             g_hookWaitSec += CACurrentMediaTime() - callAt;
         }
         lastBehind = CACurrentMediaTime();
