@@ -15,8 +15,10 @@ struct UnrealTuningTest {
         if !ok { failures += 1 }
     }
 
-    static func stats(_ fps: Double, memory: Int, behind: Int = 0, gap: Double = 30) -> String {
-        "[anvil] displayed \(fps) fps | 1% LOW \(fps * 0.6) fps | STEADY 50% | shown as ready 100% (variable refresh, confirmed) | EVENNESS 40% on-beat (240 of 600 gaps) worst gap \(gap) ms | rendered \(fps) fps (game could \(fps)) | real=1000 gen=0 skipped=0 resyncs=0 | LATENCY 20 ms avg 30 ms max | in flight 2 | missed 0 | memory \(memory) MB | GPU 99% busy | busiest threads 80% and 40% of a core" + (behind > 0 ? " | behind \(behind)" : "")
+    static func stats(_ fps: Double, memory: Int, behind: Int = 0, gap: Double = 30, gpu: Int = 99, wait: Double? = nil) -> String {
+        "[anvil] displayed \(fps) fps | 1% LOW \(fps * 0.6) fps | STEADY 50% | shown as ready 100% (variable refresh, confirmed) | EVENNESS 40% on-beat (240 of 600 gaps) worst gap \(gap) ms | rendered \(fps) fps (game could \(fps)) | real=1000 gen=0 skipped=0 resyncs=0 | LATENCY 20 ms avg 30 ms max | in flight 2 | missed 0 | memory \(memory) MB | GPU \(gpu)% busy"
+            + (wait.map { String(format: " | waited %.1f ms for the GPU | swap 2900 MB | GPU memory 7400 MB", $0) } ?? "")
+            + " | busiest threads 80% and 40% of a core" + (behind > 0 ? " | behind \(behind)" : "")
     }
 
     @MainActor
@@ -243,7 +245,7 @@ struct UnrealTuningTest {
         f.states["streaming"] = .dropped
         f.fpsBaseline = latest
         let fWanted = UnrealTuning.plan(&f, present: all, trimsDetail: false, context: own80)
-        check(f.states["dynamicres"] == .trial && f.active == ["dynamicres"] && fWanted.contains { $0 == ("r.DynamicRes.FrameTimeBudget", "25.0") },
+        check(f.states["dynamicres"] == .trial && f.active.contains("dynamicres") && fWanted.contains { $0 == ("r.DynamicRes.FrameTimeBudget", "25.0") },
               "garbage collection dropped, 80 a few % of the time: dynamic resolution on trial, at 25 ms — \(f.notes["dynamicres"] ?? "-")")
         var oneAtATime = UnrealTuning.Record()
         oneAtATime.baseline = f.baseline
@@ -291,7 +293,7 @@ struct UnrealTuningTest {
         l.states = ["streaming": .dropped, "dynamicres": .dropped]
         l.loadBaseline = .init(perMinute: 2.0, minutes: 23, memoryMB: nil, startFreeze: 5.1, loadStall: 2.5, compilePerMinute: 0.1)
         _ = UnrealTuning.plan(&l, present: all, trimsDetail: false)
-        check(l.states["pipelines"] == .trial && l.active == ["pipelines"], "its start stopped 5.1 s: pipelines in the background on trial — \(l.notes["pipelines"] ?? "-")")
+        check(l.states["pipelines"] == .trial && l.active.contains("pipelines"), "its start stopped 5.1 s: pipelines in the background on trial — \(l.notes["pipelines"] ?? "-")")
         func loads(start: Double?, stalls: [Double], compiles: Int = 3, stutters: Double = 2.0) -> UnrealTuning.Played {
             UnrealTuning.Played(ownStutters: Int(stutters * 30), minutes: 30, memoryMB: 20_000, shareAtGoal: 0.3, averageFPS: 55,
                                 startFreeze: start, loadStalls: stalls, compileStutters: compiles)
@@ -321,6 +323,104 @@ struct UnrealTuningTest {
         var crashedLoad = thread
         _ = UnrealTuning.judge(&crashedLoad, played: nil, endedBadly: "signal 11", trimsDetail: false)
         check(crashedLoad.states["asyncloading"] == .dropped && crashedLoad.states["pipelines"] == .kept, "ended unexpectedly with it on: dropped, what was kept stays")
+
+        print("— latency (0.69)")
+        // A session of 0.69's: 70 stretches at 45 fps (13.3 s each), short of 80, its frames waiting 31.5 ms for the GPU.
+        var lat = ["=== Hogwarts Legacy — 2026-10-26T01:00:00Z — Anvil 0.69.0 ===", "01:00:00.000 [anvil] setup: sg.ShadowQuality=3"]
+        var lt = 3600.0
+        for i in 0..<72 { lt += 600 / 45; lat.append(at(lt) + " " + stats(45, memory: 18000, gpu: 98, wait: i < 2 ? 2.0 : 31.5)) }
+        let latText = lat.joined(separator: "\n") + "\n"
+        let lp = UnrealTuning.lastSession(of: "Hogwarts Legacy", in: latText).flatMap { UnrealTuning.played(session: $0, goal: 80) }
+        check(abs((lp?.gpuWaitMs ?? 0) - 31.5) < 0.01 && abs((lp?.gpuBusy ?? 0) - 98) < 0.01,
+              String(format: "its heavy stretches: frames waited %.1f ms for the GPU, the GPU %.0f%% busy", lp?.gpuWaitMs ?? -1, lp?.gpuBusy ?? -1))
+        check(FrameLog.parse(stats(45, memory: 1, wait: 12.5).dropFirst(0))?.gpuWaitMs == 12.5, "the stats line's wait read")
+        check(UnrealTuning.latestLatency(of: "Hogwarts Legacy", in: latText, goal: 80)?.gpuWaitMs.map { abs($0 - 31.5) < 0.01 } == true,
+              "how long its frames waited before, from game.log")
+        check(UnrealTuning.latestLatency(of: "Hogwarts Legacy", in: realText) == nil, "0.68's sessions didn't measure it: no baseline yet")
+        var q = UnrealTuning.Record()
+        q.baseline = .init(perMinute: 2.0, minutes: 66, memoryMB: 20_000)
+        q.states = ["streaming": .dropped, "dynamicres": .dropped, "pipelines": .dropped, "asyncloading": .kept]
+        q.latencyBaseline = lp?.measure
+        let qWanted = UnrealTuning.plan(&q, present: all, trimsDetail: false)
+        check(q.states["latency"] == .trial && qWanted.contains { $0 == ("D3D12.MaximumFrameLatency", "1") } && qWanted.contains { $0 == ("r.GTSyncType", "1") },
+              "its frames waited 31.5 ms: a shorter queue on trial — \(q.notes["latency"] ?? "-")")
+        var unqueued = q
+        unqueued.states["latency"] = nil
+        unqueued.latencyBaseline?.gpuWaitMs = 4
+        _ = UnrealTuning.plan(&unqueued, present: all, trimsDetail: false)
+        check(unqueued.states["latency"] == .notNeeded, "4 ms: no queue to shorten")
+        func waits(_ wait: Double, busy: Double, stutters: Double = 2.0, minutes: Double = 30) -> UnrealTuning.Played {
+            var p = UnrealTuning.Played(ownStutters: Int(stutters * minutes), minutes: minutes, memoryMB: 18_000, shareAtGoal: 0.1, averageFPS: 45)
+            p.gpuWaitMs = wait; p.gpuBusy = busy
+            return p
+        }
+        var nearer = q
+        let nearerSaid = UnrealTuning.judge(&nearer, played: waits(12, busy: 97), endedBadly: nil, trimsDetail: false)
+        check(nearer.states["latency"] == .kept, "31.5 → 12 ms, the GPU as busy: kept — \(nearerSaid.first ?? "-")")
+        var starved = q
+        let starvedSaid = UnrealTuning.judge(&starved, played: waits(6, busy: 88), endedBadly: nil, trimsDetail: false)
+        check(starved.states["latency"] == .dropped && starvedSaid.first?.contains("idle") == true, "shorter but the GPU 98 → 88%% busy: frames lost, dropped — \(starvedSaid.first ?? "-")")
+        var unchanged = q
+        _ = UnrealTuning.judge(&unchanged, played: waits(29, busy: 98), endedBadly: nil, trimsDetail: false)
+        check(unchanged.states["latency"] == .dropped, "31.5 → 29 ms: no shorter, dropped")
+        var unmeasured = q
+        var noWait = waits(10, busy: 98); noWait.gpuWaitMs = nil
+        _ = UnrealTuning.judge(&unmeasured, played: noWait, endedBadly: nil, trimsDetail: false)
+        check(unmeasured.states["latency"] == .trial, "no heavy stretch to judge by: on trial again")
+        var after = UnrealTuning.Record()
+        _ = UnrealTuning.judge(&after, played: waits(30, busy: 98), endedBadly: nil, trimsDetail: false)
+        check(after.latencyBaseline?.gpuWaitMs == 30, "a session without it: its wait kept to judge one against")
+
+        print("— memory, and the world streamed in smaller pieces (0.69)")
+        let anvilLog = [
+            "2026-10-25T06:18:17Z  prepareAndLaunch: Hogwarts Legacy container=Hogwarts runtime=x exe=/x",
+            "2026-10-25T06:18:17Z    memory at launch: 13494 MB of 24576 MB available, swap in use 663 MB",
+            "2026-10-25T06:44:54Z    memory after Hogwarts Legacy: 9689 MB of 24576 MB available, swap in use 2908 MB",
+            "2026-10-25T07:00:00Z  prepareAndLaunch: Hogwarts Legacy container=Hogwarts runtime=x exe=/x",
+            "2026-10-25T07:00:00Z    memory at launch: 12000 MB of 24576 MB available, swap in use 3000 MB",
+        ].joined(separator: "\n")
+        check(UnrealTuning.lastSwapGrowth(of: "Hogwarts Legacy", in: anvilLog) == 2245,
+              "swap grew 663 → 2908 MB over its last start that ended — the one starting now has no end yet")
+        check(UnrealTuning.lastSwapGrowth(of: "LEGO", in: anvilLog) == nil, "another game's starts aren't its")
+        let mBase = UnrealTuning.latestMemory(of: "Hogwarts Legacy", in: realText, anvilLog: anvilLog)
+        check(mBase?.memoryMB != nil && mBase?.swapGrowthMB == 2245, String(format: "its memory before: %.1f GB at its most, swap grew %.1f GB", (mBase?.memoryMB ?? 0) / 1024, (mBase?.swapGrowthMB ?? 0) / 1024))
+        let gb = Int(ProcessInfo.processInfo.physicalMemory >> 30)
+        check(UnrealTuning.texturePoolMB == (gb <= 8 ? 1024 : gb <= 16 ? 1536 : gb <= 24 ? 2048 : 3072), "its pool for this Mac's \(gb) GB: \(UnrealTuning.texturePoolMB) MB")
+        var mem = UnrealTuning.Record()
+        mem.baseline = .init(perMinute: 2.0, minutes: 66, memoryMB: 20_700)
+        mem.states = ["streaming": .dropped, "dynamicres": .dropped, "pipelines": .dropped]
+        mem.memoryBaseline = .init(perMinute: 2.0, minutes: 25, memoryMB: 20_700, swapGrowthMB: 2245, readPerMinute: 0.4)
+        let memWanted = UnrealTuning.plan(&mem, present: all, trimsDetail: false)
+        check(mem.states["texturepool"] == .trial && mem.states["streamslices"] == nil && memWanted.contains { $0.0 == "r.Streaming.PoolSize" },
+              "20.7 GB at its most, swap +2.2 GB: its textures' memory on trial, the streaming pieces after it — \(mem.notes["texturepool"] ?? "-")")
+        var roomy = mem
+        roomy.states["texturepool"] = nil
+        roomy.memoryBaseline = .init(perMinute: 2.0, minutes: 25, memoryMB: 6_000, swapGrowthMB: 0)
+        _ = UnrealTuning.plan(&roomy, present: all, trimsDetail: false)
+        check(roomy.states["texturepool"] == .notNeeded && roomy.states["streamslices"] == .trial,
+              "a game that fits: not needed — and the streaming pieces on trial in its place")
+        func mems(_ peak: Double, swap: Double?, reads: Int = 12, stutters: Double = 2.0) -> UnrealTuning.Played {
+            var p = UnrealTuning.Played(ownStutters: Int(stutters * 30), minutes: 30, memoryMB: peak, shareAtGoal: 0.2, averageFPS: 50)
+            p.swapGrowthMB = swap; p.readStutters = reads
+            return p
+        }
+        var fitted = mem
+        let fittedSaid = UnrealTuning.judge(&fitted, played: mems(19_600, swap: 300), endedBadly: nil, trimsDetail: false)
+        check(fitted.states["texturepool"] == .kept, "swap grew 2.2 → 0.3 GB: kept — \(fittedSaid.first ?? "-")")
+        var thrash = mem
+        let thrashSaid = UnrealTuning.judge(&thrash, played: mems(18_000, swap: 100, reads: 60), endedBadly: nil, trimsDetail: false)
+        check(thrash.states["texturepool"] == .dropped && thrashSaid.first?.contains("reading its data") == true,
+              "less swap but 2 stutters a minute from reading its data, against 0.4: too small for it, dropped")
+        var noLess = mem
+        _ = UnrealTuning.judge(&noLess, played: mems(20_500, swap: 2000), endedBadly: nil, trimsDetail: false)
+        check(noLess.states["texturepool"] == .dropped, "the game's own pool was already smaller, or it sets its own: no less memory or swap, dropped")
+        var slices = fitted
+        _ = UnrealTuning.plan(&slices, present: all, trimsDetail: false)
+        check(slices.states["streamslices"] == .trial && slices.active.contains("texturepool") && slices.active.contains("streamslices"),
+              "its memory fitted and kept: the world streamed in smaller pieces on trial next, both written")
+        var smoother = slices
+        _ = UnrealTuning.judge(&smoother, played: played(1.2, minutes: 30), endedBadly: nil, trimsDetail: false)
+        check(smoother.states["streamslices"] == .kept && smoother.states["texturepool"] == .kept, "2.0 → 1.2 of its own stutters a minute: kept")
 
         print("— distant detail, for an Unreal game GameUpscaler has no profile of")
         var d = UnrealTuning.Record()
@@ -378,7 +478,8 @@ struct UnrealTuningTest {
         check(upRec?.states["dynamicres"] == .trial && upRec?.lookedFor?.contains("r.DynamicRes.FrameTimeBudget") == true
               && UnrealConfig.systemValue("r.DynamicRes.FrameTimeBudget", in: upIni) == "25.0" && UnrealConfig.systemValue("s.ForceGCAfterLevelStreamedOut", in: upIni) == nil,
               "its program looked at again for the settings it wasn't: dynamic resolution on trial at 25 ms, garbage collection left dropped")
-        check(UnrealTuning.frameRateTrial(upgraded) && UnrealTuning.learnParts(upgraded) == ["unreal:dynamicres", "unreal:pipelines"], "a frame-rate trial: the even-80 steps hold, Learn told")
+        check(UnrealTuning.frameRateTrial(upgraded) && UnrealTuning.learnParts(upgraded) == ["unreal:dynamicres", "unreal:pipelines", "unreal:texturepool"],
+              "a frame-rate trial: the even-80 steps hold, Learn told — its textures' memory on trial beside it, 20.7 GB of this Mac's at its most: \(UnrealTuning.learnParts(upgraded))")
         _ = UnrealTuning.prepare(upgraded, in: c, hasProfile: true, context: own80, logs: { realText }, confirm: { _ in false }, declined: {})
         var sixty = upgraded
         sixty.fpsGoal = 60

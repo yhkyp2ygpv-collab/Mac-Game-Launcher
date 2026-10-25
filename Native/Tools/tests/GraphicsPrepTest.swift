@@ -207,9 +207,10 @@ import Foundation
         print("info: outcome: \(GraphicsPrepRunner.shared.active?.outcome ?? "-") (\(String(format: "%.1f", Date().timeIntervalSince(started))) s)")
         check(GraphicsPrepRunner.shared.active?.finished == true, "the run finished")
         if gpuRun {
-            // 22 since 0.52 (from 18): Smooth Motion's check and its verdict among them; 26 since 0.54, with the pan's four.
-            check(prep?.status == .ready && prep?.archiveKept == true && prep?.verifiedReady == 26,
-                  "on the GPU: ready, 26 of 26 found under Rosetta, archive kept (\(prep?.verifiedReady ?? -1))")
+            // 22 since 0.52 (from 18): Smooth Motion's check and its verdict among them; 26 since 0.54, with the pan's four;
+            // 27 since 0.69, with the frame made ahead at the lowest latency.
+            check(prep?.status == .ready && prep?.archiveKept == true && prep?.verifiedReady == 27,
+                  "on the GPU: ready, 27 of 27 found under Rosetta, archive kept (\(prep?.verifiedReady ?? -1))")
             check(fm.fileExists(atPath: GraphicsPrep.archiveURL(gameID: g.id).path) && !fm.fileExists(atPath: GraphicsPrep.newArchiveURL(gameID: g.id).path),
                   "the archive moved into place, nothing half-made left")
             check(prep?.tested == true && (prep?.splitMs ?? 0) > 0, "FSR timed (\(prep?.splitMs.map { String($0) } ?? "-") ms)")

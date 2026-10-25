@@ -38,8 +38,11 @@ struct FrameWindow: Codable, Hashable {
     /// "| heaviest passes (of a 42.9 ms frame): scene 14.2 ms (1512x982, 4 colour (8-bit) + depth); …".
     var heaviestFrameMs: Double? = nil
     var heaviestPasses: [String]? = nil
-    /// Smooth Motion's frames between: how long the game waited a frame for its frames in flight.
+    /// Smooth Motion's frames between (or made ahead, 0.69): how long the game waited a frame for its frames in flight.
     var betweenWaitMs: Double? = nil
+    /// How long the first of each of the game's frames waited for the GPU once handed to it (0.69): "| waited 38.2 ms
+    /// for the GPU" — a frame queued behind the ones before, the latency of a game the GPU sets the pace for.
+    var gpuWaitMs: Double? = nil
     /// The game's memory, as libanvil reads it: "| memory 20023 MB".
     var memoryMB: Double? = nil
 
@@ -149,8 +152,11 @@ enum FrameLog {
         if let r = body.range(of: "| memory ") {
             window.memoryMB = number(in: body[r.upperBound...], after: nil, before: " MB")
         }
-        if let r = body.range(of: "| frames between: the game waited ") {
+        if let r = body.range(of: "| frames between: the game waited ") ?? body.range(of: "| frames made ahead: the game waited ") {
             window.betweenWaitMs = number(in: body[r.upperBound...], after: nil, before: " ms")
+        }
+        if let r = body.range(of: "| waited "), body[r.upperBound...].contains(" ms for the GPU") {
+            window.gpuWaitMs = number(in: body[r.upperBound...], after: nil, before: " ms for the GPU")
         }
         if let r = body.range(of: "| shaders compiled ") {
             let rest = body[r.upperBound...]

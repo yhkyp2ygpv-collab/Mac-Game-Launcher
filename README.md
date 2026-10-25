@@ -7,7 +7,7 @@ Anvil fixes that. It installs and runs Windows games on Apple silicon Macs, then
 one while you play: sharper upscaling, extra frames in heavy scenes, even frame pacing,
 working controllers and surround sound.
 
-### [⬇ Download Anvil 0.68.0](https://github.com/yhkyp2ygpv-collab/Mac-Game-Launcher/releases/latest)
+### [⬇ Download Anvil 0.69.0](https://github.com/yhkyp2ygpv-collab/Mac-Game-Launcher/releases/latest)
 
 Free · Apple silicon (M1 or later) · macOS 14 Sonoma or newer · **Open source**
 
@@ -91,7 +91,7 @@ feedback form below.</sub>
 
 ## Install
 
-1. Download `Anvil-0.68.0.dmg` from
+1. Download `Anvil-0.69.0.dmg` from
    [Releases](https://github.com/yhkyp2ygpv-collab/Mac-Game-Launcher/releases/latest).
 2. Open it and drag **Anvil** into **Applications**.
 3. Open Anvil. If macOS says it "cannot verify" Anvil, go to
@@ -140,6 +140,23 @@ Please leave out personal details such as account names or email addresses.
 - **Not notarized by Apple.** That's why macOS asks you to confirm the first time. Each
   release lists the DMG's SHA-256, so you can check your download.
 - **No warranty.** Anvil is provided "as is"; see [LICENSE.txt](LICENSE.txt).
+
+## What's new in 0.69.0
+
+- **Smooth Motion at the lowest latency.** Each of the game's frames is shown the moment it's ready, and a frame made
+  ahead of it — the picture carried on along its motion — is shown halfway to the next. Nothing real waits for anything
+  made, so controller, keyboard and mouse answer as fast as the game allows at any frame rate; frames made *between* two
+  of the game's (Smoothest picture) are one choice away, at half a frame's latency.
+- **Smooth Motion in real time.** It starts within three of the game's frames of a heavy scene coming into view, rather
+  than after one to three seconds at half the frame rate.
+- **How long each frame waits for the GPU**, measured in every session — the latency a game adds when the GPU sets its
+  pace — and, for Unreal games, Unreal's own settings for a shorter queue, kept only if the wait measurably shortens
+  without the GPU going idle.
+- **Fitting in memory, without swapping to the SSD.** Where an Unreal game nearly fills the Mac (Hogwarts Legacy: up to
+  20.7 GB of 24, swap +2.2 GB in a session), its textures' memory is sized to the Mac, kept only if swap measurably falls
+  without more stutters from reading its data — kept in Hogwarts Legacy: 19.5 → 16.5 GB at its most, swap +1.6 GB in
+  a session instead of +2.2. Then the world streamed in smaller pieces as you travel, for the stutters of flying over an
+  open world, kept only if they fall.
 
 ## What's new in 0.68.0
 

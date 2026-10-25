@@ -28,6 +28,7 @@ enum {
     kAnvilFsr3Luma, kAnvilFsr3Motion, kAnvilFsr3Settle, kAnvilFsr3Resolve, kAnvilFsr3Wide,
     kAnvilMidpoint, kAnvilMidpointCheck, kAnvilMidpointJudge,
     kAnvilFsr3PanCost, kAnvilFsr3PanPick, kAnvilFsr3PanFineCost, kAnvilFsr3PanFinePick,
+    kAnvilAhead,
     kAnvilKernelCount
 };
 const char* AnvilKernelName(int kernel);

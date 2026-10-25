@@ -2434,3 +2434,110 @@ kernel void anvil_midpoint_judge(device MidGate&  gate [[buffer(0)]],
     atomic_store_explicit(&gate.looked, 0u, memory_order_relaxed);
     atomic_store_explicit(&gate.apart, 0u, memory_order_relaxed);
 }
+
+// =============================================================================
+// Smooth Motion at the lowest latency (0.69): the frame made ahead of the newest one.
+//
+// Frames between (anvil_midpoint) are made from the two newest real frames and shown between them, so each
+// real frame waits half the game's frame to be shown: at 25 fps of the game's own, 20 ms more between what the
+// player does and the screen — more the lower the frame rate, which was felt. Here the newest real frame is
+// shown the moment it's done and the made one after it, the picture carried on along its motion by `reach`
+// of a frame (0.5: to halfway towards the next real one), so no real frame waits for a made one.
+//
+// The motion is FSR 3's, in the newer frame's pixels and pointing back to where each was in the older one
+// (as anvil_midpoint reads it): content at q in the newest frame moves on to q - reach*v, so the made pixel at
+// p is the newest frame's at s = p + reach*v(s). Where blocks moving differently meet, each pixel tries the
+// vectors around it and keeps the one that (1) the pixel it lands on in the newest frame moves with itself and
+// (2) the older frame agrees with along that motion. Where none does — what a moving thing is about to uncover,
+// which neither real frame shows — the newest frame's own pixel there, a moment behind rather than smeared.
+// A HUD (the same in both frames, and nothing like itself along the motion) stays still. Where the check
+// found the two frames apart over much of an area (flames, a reflection: anvil_midpoint_check's map), and
+// whole when the judge holds, the newest frame as it is.
+//
+// ahead: x = reach (0.5), z = test flags (1: block motion only, 16: the gate left out, 32: the map left out,
+// 64: the map shown). game, params, gate: as anvil_midpoint.
+// =============================================================================
+kernel void anvil_ahead(texture2d<half, access::sample>  before   [[texture(0)]],
+                        texture2d<half, access::sample>  after    [[texture(1)]],
+                        texture2d<float, access::read>   motion   [[texture(2)]],
+                        texture2d<float, access::write>  dst      [[texture(4)]],
+                        texture2d<half, access::sample>  apartMap [[texture(5)]],
+                        constant float4&                 params   [[buffer(0)]],
+                        constant float4&                 ahead    [[buffer(1)]],
+                        constant float4&                 game     [[buffer(2)]],
+                        device const MidGate&            gate     [[buffer(3)]],
+                        uint2 gid [[thread_position_in_grid]])
+{
+    const int w = int(dst.get_width()), h = int(dst.get_height());
+    if (int(gid.x) >= w || int(gid.y) >= h) return;
+    const float2 outSize = float2(w, h), inv = 1.0 / outSize;
+    const float reach = clamp(ahead.x, 0.0, 1.0);
+    const int dbg = int(ahead.z);
+    if (gate.hold != 0 && !(dbg & 16)) {
+        dst.write(float4(anvilCounterOver(float3(saturate(after.read(gid).rgb)), int2(gid), w, h, params), 1.0), gid);
+        return;
+    }
+    const float2 toOut = outSize / max(game.xy, float2(1.0));
+    const int cell = max(int(game.z), 1);
+    const int2 mlim = int2(motion.get_width(), motion.get_height()) - 1;
+    const float2 p = float2(gid) + 0.5;
+    const float blockPx = max(toOut.x, toOut.y);
+
+    // The vector at p, then at where it lands: one step of s = p + reach*v(s).
+    const float4 m0 = midMotion(motion, p, toOut, cell, mlim);
+    const float4 m1 = midMotion(motion, p + reach * m0.xy, toOut, cell, mlim);
+    float2 v = m1.xy;
+    bool sure = true;
+    const bool edge = m0.w > blockPx || m1.w > blockPx || length(m1.xy - m0.xy) > 1.0;
+    if (edge && !(dbg & 1)) {
+        float2 cand[7];
+        int n = 0;
+        cand[n++] = m1.xy;
+        if (length(m0.xy - m1.xy) > 1.0) cand[n++] = m0.xy;
+        const int2 block = clamp(int2(floor(p / toOut)) / cell, int2(0), mlim);
+        const int2 beside[4] = { int2(-1, 0), int2(1, 0), int2(0, -1), int2(0, 1) };
+        for (int i = 0; i < 4; ++i) {
+            const float4 nb = motion.read(uint2(clamp(block + beside[i], int2(0), mlim)));
+            if (!fsr3Finite(nb.xy)) continue;
+            const float2 c = nb.xy * toOut;
+            bool seen = false;
+            for (int k = 0; k < n; ++k) seen = seen || length(cand[k] - c) <= 1.0;
+            if (!seen) cand[n++] = c;
+        }
+        float best = 1e30;
+        bool bestOwn = false;
+        for (int k = 0; k < n; ++k) {
+            const float2 s = p + reach * cand[k], a = s + cand[k];
+            const bool inS = all(s >= 0.0) && all(s <= outSize), inA = all(a >= 0.0) && all(a <= outSize);
+            if (!inS) continue;
+            // (1) what it lands on moves this way itself
+            const float near = max(1.5, 0.15 * length(cand[k]));
+            const bool own = length(midMotion(motion, s, toOut, cell, mlim).xy - cand[k]) <= near;
+            // (2) the older frame agrees along it
+            const float c = (inA ? midCost(before, after, a, s, inv) : 0.06) + (own ? 0.0 : 0.05) + (k == 0 ? 0.0 : 0.003);
+            if (c < best) { best = c; v = cand[k]; bestOwn = own; }
+        }
+        sure = bestOwn && best < 0.08;
+    }
+    // A HUD over a moving scene.
+    if (length(v) > 0.5) {
+        const float still = midLumaDiff(before, after, p, p, inv);
+        if (still < 0.008 && midLumaDiff(before, after, p + v, p, inv) > 0.06) { v = float2(0.0); sure = true; }
+    }
+    // Carried no further than 48 display pixels for certain: past that a turn of the camera costs most.
+    const float carried = reach * length(v);
+    const float trust = sure ? saturate(1.0 - max(0.0, carried - 48.0) / 48.0) : 0.0;
+    const float2 s = p + trust * reach * v;
+    const bool inS = all(s >= 0.0) && all(s <= outSize);
+    half3 result = inS ? saturate(fsr3History(after, s * inv, outSize).rgb) : saturate(after.read(gid).rgb);
+    if (!(dbg & 48)) {
+        constexpr sampler lin(coord::normalized, filter::linear, address::clamp_to_edge);
+        const float2 q = p * inv, o = 1.0 / float2(apartMap.get_width(), apartMap.get_height());
+        const float d = 0.25 * (float(apartMap.sample(lin, q + o * float2(-1.0, -1.0)).r) + float(apartMap.sample(lin, q + o * float2(1.0, -1.0)).r)
+                              + float(apartMap.sample(lin, q + o * float2(-1.0, 1.0)).r) + float(apartMap.sample(lin, q + o * float2(1.0, 1.0)).r));
+        const float take = smoothstep(0.2, 0.45, d);
+        if (take > 0.0) result = mix(result, saturate(after.read(gid).rgb), half(take));
+        if (dbg & 64) result = half3(half(take), result.g * 0.5h, result.b * 0.5h);
+    }
+    dst.write(float4(anvilCounterOver(float3(result), int2(gid), w, h, params), 1.0), gid);
+}

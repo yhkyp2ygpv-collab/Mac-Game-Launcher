@@ -195,6 +195,7 @@ struct UpscalerConfig: Codable, Hashable {
         v.fsrToDisplay = c.value("fsrToDisplay", v.fsrToDisplay)
         v.sharpTextures = c.value("sharpTextures", v.sharpTextures)
         v.smoothMotion = c.value("smoothMotion", v.smoothMotion)
+        v.smoothMotionStyle = c.value("smoothMotionStyle", v.smoothMotionStyle)
         v.guardian = c.value("guardian", v.guardian)
         v.lowLatencyAtLowFPS = c.value("lowLatencyAtLowFPS", v.lowLatencyAtLowFPS)
         v.injectedPayloadID = c.optional("injectedPayloadID")
@@ -250,6 +251,23 @@ struct UpscalerConfig: Codable, Hashable {
     /// otherwise, on a variable-refresh display, frames guessed ahead, from 24 fps. libanvil's genDecide and
     /// presenter (ANVIL_SMOOTH_MOTION). On by default.
     var smoothMotion: Bool = true
+
+    /// How Smooth Motion makes its frames (0.69). Lowest latency, the default: each of the game's frames shown the
+    /// moment it's done and one made ahead of it, carried on along the motion, shown halfway to the next — nothing
+    /// real waits for anything made. Smoothest picture: one made between each two of the game's, from both, which is
+    /// never wrong where the motion turns, with each of the game's frames shown half a frame later for it — 20 ms at
+    /// 25 fps of its own, more the lower it goes. libanvil's anvil_ahead and presenter (ANVIL_SM_AHEAD).
+    enum SmoothMotionStyle: String, Codable, CaseIterable, Identifiable {
+        case lowestLatency, smoothest
+        var id: String { rawValue }
+        var title: String {
+            switch self {
+            case .lowestLatency: "Lowest latency"
+            case .smoothest: "Smoothest picture"
+            }
+        }
+    }
+    var smoothMotionStyle: SmoothMotionStyle = .lowestLatency
 
     /// Guardian (see Guardian.swift): checks every few seconds while a game plays that what Anvil does is
     /// working, and learns where Smooth Motion pays for itself on this Mac. On by default.

@@ -501,7 +501,10 @@ static NSDictionary* testFSR3(id<MTLDevice> device, id<MTLCommandQueue> queue, i
     // ANVIL_PREP_GEN_MID: the frame between the last two instead (anvil_midpoint), against the scene
     // half a frame back — and against the older frame still on screen, what's seen without it.
     const bool genMid = genTest && getenv("ANVIL_PREP_GEN_MID") != nullptr;
-    id<MTLComputePipelineState> extrap = genTest ? AnvilPipeline(device, library, genMid ? kAnvilMidpoint : kAnvilExtrapolate,
+    // ANVIL_PREP_GEN_AHEAD: the frame made ahead of the newest at the lowest latency (anvil_ahead, 0.69), from the same
+    // pictures, motion and check as frames between, against the scene `reach` of a frame on (ANVIL_PREP_GEN_REACH, 0.5).
+    const bool genAhead = genTest && !genMid && getenv("ANVIL_PREP_GEN_AHEAD") != nullptr;
+    id<MTLComputePipelineState> extrap = genTest ? AnvilPipeline(device, library, genMid ? kAnvilMidpoint : genAhead ? kAnvilAhead : kAnvilExtrapolate,
                                                                  archive, &fromArchive) : nil;
     double midMs = 0.0;
     // Smooth Motion's check (0.51), in every prepare: the frame it makes halfway between two of FSR 3's pictures,
@@ -808,20 +811,43 @@ static NSDictionary* testFSR3(id<MTLDevice> device, id<MTLCommandQueue> queue, i
                 }
             }
         }
-        if (genTest && !genMid && extrap && genOut && refHalf && t >= 12 && t <= 22) {
+        if (genTest && !genMid && extrap && genOut && refHalf && t >= 12 && t <= 22 && (!genAhead || AnvilFSR3PictureBefore(&st))) {
+            static const float reach = getenv("ANVIL_PREP_GEN_REACH") ? std::clamp((float)atof(getenv("ANVIL_PREP_GEN_REACH")), 0.05f, 1.0f) : 0.5f;
+            const float onTo = genAhead ? reach : 0.5f;
             simd_float2 cHalf, sHalf;
-            sceneAt(t + 0.5f, &cHalf, &sHalf);
+            sceneAt(t + onTo, &cHalf, &sHalf);
             id<MTLCommandBuffer> gb = [queue commandBuffer];
             id<MTLComputeCommandEncoder> ge = [gb computeCommandEncoder];
-            [ge setComputePipelineState:extrap];
-            [ge setTexture:owned[5] atIndex:0];
-            [ge setTexture:owned[4] atIndex:1];
-            [ge setTexture:AnvilFSR3Motion(&st) atIndex:2];
-            [ge setTexture:genOut atIndex:3];
-            const simd_float4 gp = {0.5f, (float)sw / (float)gw, 0, 0};
-            [ge setBytes:&gp length:sizeof(gp) atIndex:0];
-            AnvilDispatch2D(ge, extrap, sw, sh);
-            draw(ge, refHalf, t + 0.5f, 4);
+            const simd_float4 agp = {(float)gw, (float)gh, 8.0f * st.scale, 0};
+            auto encodeAhead = [&](id<MTLComputeCommandEncoder> e) {
+                const simd_float4 ap = {reach, 0, getenv("ANVIL_PREP_GEN_MID_FLAGS") ? (float)atoi(getenv("ANVIL_PREP_GEN_MID_FLAGS")) : 0.0f, 0};
+                const simd_float4 cp = {0, 0, 1, -1};
+                [e setComputePipelineState:extrap];
+                [e setTexture:AnvilFSR3PictureBefore(&st) atIndex:0];
+                [e setTexture:AnvilFSR3Picture(&st) atIndex:1];
+                [e setTexture:AnvilFSR3Motion(&st) atIndex:2];
+                [e setTexture:genOut atIndex:4];
+                [e setTexture:ensureApartMap() atIndex:5];
+                [e setBytes:&cp length:sizeof(cp) atIndex:0];
+                [e setBytes:&ap length:sizeof(ap) atIndex:1];
+                [e setBytes:&agp length:sizeof(agp) atIndex:2];
+                [e setBuffer:checkState offset:0 atIndex:3];
+                AnvilDispatch2D(e, extrap, sw, sh);
+            };
+            if (genAhead) {
+                encodeCheck(ge, agp);
+                encodeAhead(ge);
+            } else {
+                [ge setComputePipelineState:extrap];
+                [ge setTexture:owned[5] atIndex:0];
+                [ge setTexture:owned[4] atIndex:1];
+                [ge setTexture:AnvilFSR3Motion(&st) atIndex:2];
+                [ge setTexture:genOut atIndex:3];
+                const simd_float4 gp = {0.5f, (float)sw / (float)gw, 0, 0};
+                [ge setBytes:&gp length:sizeof(gp) atIndex:0];
+                AnvilDispatch2D(ge, extrap, sw, sh);
+            }
+            draw(ge, refHalf, t + onTo, 4);
             [ge endEncoding];
             [gb commit];
             [gb waitUntilCompleted];
@@ -829,6 +855,15 @@ static NSDictionary* testFSR3(id<MTLDevice> device, id<MTLCommandQueue> queue, i
             // change from the real frame against the scene's own change (owned[6] is the scene now).
             measureAgainst(genOut, owned[4], refHalf, owned[6], sHalf, genMade);
             measureAgainst(owned[4], owned[4], refHalf, owned[6], sHalf, genRepeat);
+            if (genAhead && t == 20) {
+                id<MTLCommandBuffer> tb = [queue commandBuffer];
+                id<MTLComputeCommandEncoder> te = [tb computeCommandEncoder];
+                for (int i = 0; i < 20; i++) encodeAhead(te);
+                [te endEncoding];
+                [tb commit];
+                [tb waitUntilCompleted];
+                midMs = (tb.GPUEndTime - tb.GPUStartTime) * 1000.0 / 20.0;
+            }
             if (dump && t == 20) {
                 NSString* dir = @(dump);
                 dumpPNG(device, queue, genOut, [dir stringByAppendingPathComponent:@"half-made.png"]);
@@ -915,11 +950,11 @@ static NSDictionary* testFSR3(id<MTLDevice> device, id<MTLCommandQueue> queue, i
                  shareFrames ? 100.0 * shareSum / shareFrames : 0.0, ((const CheckState*)checkState.contents)->held,
                  ((const CheckState*)checkState.contents)->judged, ((const CheckState*)checkState.contents)->parted);
     } else if (genTest && genMade.frames) {
-        note("Smooth Motion at speed %.1f: made frame %.2f from the scene half a frame on, the newest frame again %.2f; "
-             "change against the scene's %.2f (repeat %.2f); around the moving disc %.0f%% of the repeat's error; %s",
-             speed, per(genMade, genMade.error), per(genRepeat, genRepeat.error), per(genMade, genMade.flicker),
+        note("Smooth Motion%s at speed %.1f: made frame %.2f from the scene half a frame on, the newest frame again %.2f; "
+             "change against the scene's %.2f (repeat %.2f); around the moving disc %.0f%% of the repeat's error; %.2f ms a frame; %s",
+             genAhead ? " made ahead (lowest latency)" : "", speed, per(genMade, genMade.error), per(genRepeat, genRepeat.error), per(genMade, genMade.flicker),
              per(genRepeat, genRepeat.flicker), genRepeat.nearDisc > 0 ? 100.0 * genMade.nearDisc / genRepeat.nearDisc : 0.0,
-             genMade.broken > 0 ? "SOME PIXELS NOT NUMBERS" : "all numbers");
+             midMs, genMade.broken > 0 ? "SOME PIXELS NOT NUMBERS" : "all numbers");
     }
     [genOut release]; [refHalf release]; [extrap release];
     const double smMade = per(smoothMade, smoothMade.error), smOlder = per(smoothOlder, smoothOlder.error);

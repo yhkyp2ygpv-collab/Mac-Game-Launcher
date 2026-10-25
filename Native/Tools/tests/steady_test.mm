@@ -733,6 +733,78 @@ int main() {
         run(40.0, 2.0, 2.0);
         CHECK(g_generating && g_fill && g_mid.load(), "FSR 3 back: frames between in their place, at once");
         genStop(t, "%.0f", 0.0);
+
+        // 0.69: Smooth Motion in real time — three of the game's frames in a row below its band start it at once,
+        // not at genDecide's next look.
+        fresh(); t = 1800.0; g_sessionStartAt = 0.0; g_midRate.store(0.0);
+        run(90.0, 4.0, 2.0);
+        CHECK(!g_generating, "set-up: 90 fps of its own, nothing made");
+        midQuickWatch(t, 1.0 / 30.0); midQuickWatch(t, 1.0 / 30.0);
+        CHECK(!g_generating, "two frames at 30: not yet");
+        midQuickWatch(t, 1.0 / 30.0);
+        CHECK(g_generating && g_fill && g_mid.load(), "a third: Smooth Motion from the next frame, without waiting for the two-second look");
+        genStop(t, "%.0f", 0.0);
+        midQuickWatch(t, 1.0 / 30.0); midQuickWatch(t, 1.0 / 90.0); midQuickWatch(t, 1.0 / 30.0); midQuickWatch(t, 1.0 / 30.0);
+        CHECK(!g_generating, "slow frames not three in a row: not started");
+        midQuickWatch(t, 1.0 / 90.0);
+        g_guardCalmUntil = t + 60.0;
+        for (int i = 0; i < 8; ++i) midQuickWatch(t, 1.0 / 30.0);
+        CHECK(!g_generating, "Guardian calm (switching often): eight slow frames aren't enough");
+        midQuickWatch(t, 1.0 / 30.0);
+        CHECK(g_generating && g_mid.load(), "calm: the ninth starts it");
+        genStop(t, "%.0f", 0.0); g_guardCalmUntil = 0.0;
+        g_sessionStartAt = t - 10.0;
+        for (int i = 0; i < 5; ++i) midQuickWatch(t, 1.0 / 30.0);
+        CHECK(!g_generating, "in the game's first 30 s: not started");
+        g_sessionStartAt = 0.0;
+        for (int i = 0; i < 5; ++i) midQuickWatch(t, 1.0 / 70.0);
+        CHECK(!g_generating, "70 fps, above the band: not started");
+        for (int i = 0; i < 5; ++i) midQuickWatch(t, 1.0 / 10.0);
+        CHECK(!g_generating, "10 fps, below it: not started");
+        g_midAvailableForTest = 0;
+        for (int i = 0; i < 5; ++i) midQuickWatch(t, 1.0 / 30.0);
+        CHECK(!g_generating, "no FSR 3 pictures to make them from: not started (genDecide's 0.47 frames, if any, as before)");
+        g_midAvailableForTest = 1;
+        g_frameGenRequested = false;
+        for (int i = 0; i < 5; ++i) midQuickWatch(t, 1.0 / 30.0);
+        CHECK(!g_generating, "frame generation off: not started");
+        g_frameGenRequested = true;
+        // FSR 3 eased to FSR 1 (on battery): back on the same three frames, then Smooth Motion on the three after.
+        {
+            const bool wantedWas = g_fsr3Wanted;
+            g_fsr3Wanted = true; g_fsr3Failed.store(false); g_fsr3Eased.store(true);
+            g_midAvailableForTest = 0; g_midKernelForTest = 1;
+            for (int i = 0; i < 3; ++i) midQuickWatch(t, 1.0 / 25.0);
+            CHECK(!g_fsr3Eased.load() && !g_generating, "FSR 3 eased: back after three slow frames, not two seconds");
+            g_midAvailableForTest = 1;
+            for (int i = 0; i < 3; ++i) midQuickWatch(t, 1.0 / 25.0);
+            CHECK(g_generating && g_mid.load(), "…and Smooth Motion on the three after, from FSR 3's pictures");
+            genStop(t, "%.0f", 0.0);
+            g_fsr3Wanted = wantedWas; g_midKernelForTest = -1;
+        }
+
+        // 0.69: made ahead — the codes, and when the made frame is shown and how far it's carried.
+        CHECK(midMadeSet(midMadeCode(1, 1) + kMidMadeAhead) == 1 && midMadeCount(midMadeCode(1, 1) + kMidMadeAhead) == 1
+              && midMadeAhead(midMadeCode(0, 1) + kMidMadeAhead) && !midMadeAhead(midMadeCode(1, 3)) && !midMadeAhead(-1),
+              "made-ahead codes keep their set and count");
+        {
+            const double refreshWas = g_refreshPeriod; const int vrrWas = g_vrrState;
+            g_refreshPeriod = 1.0 / 120.0; g_vrrState = 1;
+            CHECK(fabs(midPairGap(0.040, 2) - 5.0 / 240.0) < 1e-9, "25 fps of its own: the made frame five 240 Hz steps (20.8 ms) after the real one (%.2f ms)", midPairGap(0.040, 2) * 1000.0);
+            CHECK(fabs(midPairGap(0.025, 2) - 3.0 / 240.0) < 1e-9, "40 fps: three steps, 12.5 ms — 80 on the screen (%.2f ms)", midPairGap(0.025, 2) * 1000.0);
+            CHECK(fabs(midPairGap(0.0175, 2) - 1.0 / 120.0) < 1e-9, "57 fps: a refresh (%.2f ms)", midPairGap(0.0175, 2) * 1000.0);
+            g_midIntervalSeen.store(0.040);
+            CHECK(fabs(midAheadReach() - (5.0 / 240.0) / 0.040) < 1e-9, "carried as far as it's shown after: %.3f of a frame", midAheadReach());
+            g_midIntervalSeen.store(0.0);
+            CHECK(fabs(midAheadReach() - 0.5) < 1e-9, "before the presenter has timed a frame: half");
+            g_aheadReachScale = 0.0; g_midIntervalSeen.store(0.040);
+            CHECK(midAheadReach() == 0.0, "ANVIL_AHEAD_REACH=0: the newest frame again (tests)");
+            g_aheadReachScale = 1.0; g_midIntervalSeen.store(0.0);
+            g_vrrState = 0; g_refreshPeriod = 1.0 / 60.0;
+            CHECK(fabs(midPairGap(0.050, 2) - 2.0 / 60.0) < 1e-9 || fabs(midPairGap(0.050, 2) - 1.0 / 60.0) < 1e-9,
+                  "a fixed 60 Hz display: whole refreshes (%.2f ms)", midPairGap(0.050, 2) * 1000.0);
+            g_refreshPeriod = refreshWas; g_vrrState = vrrWas;
+        }
         g_midWanted = true; g_midAvailableForTest = -1; g_gpuBusy.store(-1);
         g_smoothMotion = false;
         g_genForce = true;

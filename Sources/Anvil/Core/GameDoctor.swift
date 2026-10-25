@@ -399,7 +399,9 @@ enum GameDoctor {
         // Smooth Motion with frames made between two of the game's, from both (0.48): what it shows of a
         // heavy scene is meant to be half made frames, and each one sees the motion from both sides.
         let smoothLines = game.filter { $0.contains("[anvil] Smooth Motion: the game makes") }
-        let between = smoothLines.contains { $0.contains("a frame made between each two") }
+        let between = smoothLines.contains { $0.contains("a frame made between each two") || $0.contains("a frame made ahead of each") }
+        // Made ahead at the lowest latency (0.69): each of the game's frames shown the moment it's done.
+        let ahead = smoothLines.contains { $0.contains("a frame made ahead of each") }
         // Guesses stretched over more motion than one of the game's frames every second refresh:
         // LEGO Star Wars on 11 October, the game at 23–45 fps for minutes with half of what was
         // shown generated — the picture breaking up, and this check said all was well.
@@ -454,6 +456,8 @@ enum GameDoctor {
                 }.max() ?? 2
                 let shownText = most > 2
                     ? String(format: "up to %d frames for each of its own were shown — %.0f fps of its own shown as about %.0f at its slowest. Each of the game's frames reaches the screen a little later for it.", most, own, own * Double(most))
+                    : ahead
+                    ? String(format: "a frame made ahead of each of its frames was shown halfway to the next — about %.0f fps of its own shown as %.0f, each of the game's frames shown the moment it was done (lowest latency).", own, own * 2)
                     : String(format: "a frame made between each two of its frames, from both, was shown — about %.0f fps of its own shown as %.0f. Each of the game's frames reaches the screen half a frame later for it.", own, own * 2)
                 // The made frames' check (0.52): how many were the nearer real frame instead.
                 let checked = game.compactMap { line -> (Int, Int)? in

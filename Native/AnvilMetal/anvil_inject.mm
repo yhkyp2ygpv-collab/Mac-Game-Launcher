@@ -33,6 +33,7 @@
 #import <simd/simd.h>
 #import <mach/mach.h>
 #import <sys/time.h>
+#import <sys/sysctl.h>
 #import <thread>
 #import <mutex>
 #import <dlfcn.h>
@@ -552,6 +553,24 @@ constexpr double kFillLeaveSeconds = 4.0;
 bool     g_midWanted = true;                      // ANVIL_SMOOTH_MOTION_MID=0: 0.47's frames made ahead
 std::atomic<bool> g_mid{false};                   // frames through the presenter now
 id<MTLComputePipelineState> g_midpoint = nil;
+
+// --- Smooth Motion at the lowest latency (0.69) ------------------------------------------------------------
+// A frame between two of the game's is shown before the newer of them, so each real frame waited half the game's
+// frame for it: 20 ms more from what the player does to the screen at 25 fps of the game's own, 33 ms at 15 — the
+// latency rising as the frame rate falls. At the lowest latency (the default) the newest real frame is shown the
+// moment its GPU work is done, as without Smooth Motion, and a frame made ahead of it (anvil_ahead: the newest
+// picture carried on along FSR 3's motion to where the next real frame's time will be) is shown halfway to that
+// one. Nothing real waits for anything made. Where motion turns, the made frame is a little wrong and the next real
+// one puts it right; frames between are never wrong that way, and stay one choice away (Smoothest picture,
+// ANVIL_SM_AHEAD=0). Starting and stopping Smooth Motion this way moves no real frame, so it can start the moment
+// the game slows (midQuickWatch).
+bool     g_midAhead = true;                       // ANVIL_SM_AHEAD=0: frames between, as 0.48–0.68
+id<MTLComputePipelineState> g_ahead = nil;
+std::atomic<double> g_midIntervalSeen{0.0};       // the presenter's g_midInterval, for the game's thread
+double   g_aheadReachScale = 1.0;                 // ANVIL_AHEAD_REACH: the made frame's reach × this (tests)
+std::atomic<uint64_t> g_aheadMade{0};             // made-ahead frames shown, for the stats line
+/// Whether the made frames are made ahead: chosen, and the kernel there.
+inline bool midAheadNow() { return g_midAhead && g_ahead != nil; }
 // The made frames' check (AnvilShaders.metal: anvil_midpoint_check, anvil_midpoint_judge): before each, the two frames
 // looked at on FSR 3's luma planes (a plane pixel in 16; 0.02 ms a frame on an M4 at LEGO's sizes), and where they
 // disagree over too much of the picture for a few frames running the nearer real frame is shown in the made one's
@@ -625,8 +644,11 @@ CFRunLoopRef g_dlRunLoop = nullptr;               // the link's thread's: anythi
 
 // A made frame's code: which set (×8) and how many were made in it.
 inline int midMadeCode(int set, int count) { return set * 8 + count; }
-inline int midMadeSet(int made) { return made / 8; }
+inline int midMadeSet(int made) { return (made & 15) / 8; }
 inline int midMadeCount(int made) { return made < 0 ? 0 : made % 8; }
+// Made ahead of the real frame rather than between (0.69): the code with 16 added.
+constexpr int kMidMadeAhead = 16;
+inline bool midMadeAhead(int made) { return made >= 0 && (made & kMidMadeAhead) != 0; }
 id<MTLTexture> g_midShown[3] = {nil, nil, nil};   // the game's frames after FSR
 int      g_midShownNext = 0;
 id<MTLTexture> g_midInputs[3] = {nil, nil, nil};  // what the game draws into, at its size
@@ -640,6 +662,7 @@ constexpr double kMidStallSec = 0.4;
 void midStalled(double now);
 int g_midInFlight = 2;                            // the game's frames on their way to the screen at most (ANVIL_MID_IN_FLIGHT)
 bool g_jitOn = false;                             // each frame started just in time at a low frame rate (jitHold; ANVIL_JIT=1)
+bool g_queueWatch = true;                         // how long the game's frames wait for the GPU (queueWatch; ANVIL_QUEUE_WATCH=0: off)
 std::atomic<bool> g_midInsert{false};             // making frames between, at the rate the presenter sees
 std::atomic<double> g_midRate{0.0};               // the game's frames a second, as the presenter receives them
 std::atomic<double> g_midHandedAt{0.0};           // when a frame was last handed over
@@ -651,6 +674,7 @@ std::atomic<uint64_t> g_midWaitUs{0};             // the presenter's wait for dr
 std::atomic<int> g_midDebug{0};                   // ANVIL_MID_DEBUG=n: the first n presenter steps, in the log
 #ifdef ANVIL_INJECT_TEST
 int      g_midAvailableForTest = -1;              // steady_test: whether frames between can be made (-1: as found)
+int      g_midKernelForTest = -1;                 // steady_test: whether the kernel is there, apart from FSR 3's pictures
 #endif
 double   g_midEngagedAt = -1.0;
 double   g_midRateBefore = 0.0;                   // the game's own rate when it began
@@ -1382,8 +1406,11 @@ void readEnvironment() {
     if (const char* m = getenv("ANVIL_SMOOTH_MOTION_MID")) g_midWanted = m[0] != '0';
     if (const char* m = getenv("ANVIL_MID_DEBUG")) g_midDebug = atoi(m);
     if (const char* m = getenv("ANVIL_MID_EARLY")) g_midEarly = atoi(m);
+    if (const char* m = getenv("ANVIL_SM_AHEAD")) g_midAhead = m[0] != '0';
+    if (const char* m = getenv("ANVIL_AHEAD_REACH")) g_aheadReachScale = std::clamp(atof(m), 0.0, 2.0);
     if (const char* m = getenv("ANVIL_MID_IN_FLIGHT")) g_midInFlight = std::clamp(atoi(m), 1, 3);
     if (const char* j = getenv("ANVIL_JIT")) g_jitOn = j[0] != '0';
+    if (const char* q = getenv("ANVIL_QUEUE_WATCH")) g_queueWatch = q[0] != '0';
     if (const char* m = getenv("ANVIL_MID_CHECK")) {
         if (m[0] == '0' && m[1] == 0) g_midCheckOn = false;
         else sscanf(m, "%f,%f,%f", &g_midCheckApart, &g_midCheckShare, &g_midCheckPart);
@@ -1650,6 +1677,7 @@ bool prepare(id<MTLDevice> device) {
     g_midpoint     = set->pso[kAnvilMidpoint];
     g_midCheck     = set->pso[kAnvilMidpointCheck];
     g_midJudge     = set->pso[kAnvilMidpointJudge];
+    g_ahead        = set->pso[kAnvilAhead];
     const bool none = set->made == 0;
     [set->device release];
     delete set;   // its pipelines are the globals' now
@@ -3044,6 +3072,18 @@ double gpuMsPerFrame(double rate, int gpu) { return (gpu > 0 && rate > 1.0) ? gp
 
 /// A step of the budget, at most four times a second: `rate` the game's own frames a second,
 /// `gpu` the GPU's busy percent (-1 not known), `hot` whether the Mac is.
+/// FSR 3 back from FSR 1 for Smooth Motion, whose frames are made from its pictures: the game down in its band.
+void fsr3BackForSmoothMotion(double now, double rate) {
+    g_fsr3HeavierSince = -1.0;
+    g_fsr3Eased = false;
+    g_guardChangedAt = now;
+    g_fsr3BackAt = now;
+    g_fsr3RoomSince = -1.0;
+    g_fsr3GpuBefore = -1;
+    diag("[anvil] FSR 3: back — the game is down to %.0f fps of its own, past what FSR 1's saving lifts to an even %.0f; "
+         "Smooth Motion makes its frames from FSR 3's pictures", rate, steadyHoldRate());
+}
+
 void fsr3GovernStep(double now, double rate, int gpu, bool hot) {
     const double target = steadyHoldRate();
     const double budgetMs = 1000.0 / target;               // 12.5 at 80
@@ -3080,14 +3120,7 @@ void fsr3GovernStep(double now, double rate, int gpu, bool hot) {
     if (!hot && rate > 1.0 && rate < 0.97 * target && midWouldEngage(now, rate)) {
         if (g_fsr3HeavierSince < 0.0) g_fsr3HeavierSince = now;
         if (now - g_fsr3HeavierSince >= 2.0) {
-            g_fsr3HeavierSince = -1.0;
-            g_fsr3Eased = false;
-            g_guardChangedAt = now;
-            g_fsr3BackAt = now;
-            g_fsr3RoomSince = -1.0;
-            g_fsr3GpuBefore = -1;
-            diag("[anvil] FSR 3: back — the game is down to %.0f fps of its own, past what FSR 1's saving lifts to an even %.0f; "
-                 "Smooth Motion makes its frames between from FSR 3's pictures", rate, target);
+            fsr3BackForSmoothMotion(now, rate);
             return;
         }
     } else {
@@ -3275,6 +3308,27 @@ id<MTLTexture> midInputNext(MTLPixelFormat format) {
     return g_midInputs[k];
 }
 
+/// The time from one of the presenter's frames to the next it shows for the same game frame: the game's frame over
+/// how many are shown for it (half, with one made), in whole steps of the panel (240 Hz on a 120 Hz ProMotion panel; a
+/// whole refresh on a display at a fixed rate) — never so long that those after the first take more than the game's
+/// frame less a refresh, so the next game frame's first always has its refresh. (See midPresent.)
+double midPairGap(double interval, int perFrame) {
+    const double refresh = g_refreshPeriod > 0.0 ? g_refreshPeriod : 1.0 / 60.0;
+    const double step = g_vrrState == 0 ? refresh : 0.5 * refresh;
+    double steps = std::max(1.0, std::round(interval / perFrame / step));
+    const int after = std::max(1, perFrame - 1);    // gaps after the first frame shown
+    while (steps > 1.0 && after * steps * step > interval - refresh + 0.0005) steps -= 1.0;
+    return std::max(refresh, steps * step);
+}
+
+/// How far ahead of the newest real frame the made one is carried: as far as its showing is after that frame's, in
+/// the game's frames — about half (g_aheadReachScale times that, for tests).
+double midAheadReach() {
+    const double interval = g_midIntervalSeen.load(std::memory_order_relaxed);
+    const double reach = interval > 0.003 ? midPairGap(interval, 2) / interval : 0.5;
+    return std::clamp(reach * g_aheadReachScale, 0.0, 1.0);
+}
+
 /// The frames between FSR 3's last two pictures — one halfway, or two or three evenly between (g_midMult) — in
 /// the game's command buffer right after FSR 3, into the presenter's textures like `shown`: their code
 /// (midMadeCode), or -1 when there are none to make.
@@ -3285,7 +3339,8 @@ int midEncode(id<MTLCommandBuffer> cb, id<MTLTexture> shown) {
     if (!before || !after || !motion || !shown || !g_midpoint) return -1;
     if (after.width != shown.width || after.height != shown.height) return -1;
     const int k = g_midNext;
-    const int m = std::clamp(g_midMult.load(), 2, std::min(g_midMultMax, kMidMultMax));
+    const bool ahead = midAheadNow();
+    const int m = ahead ? 2 : std::clamp(g_midMult.load(), 2, std::min(g_midMultMax, kMidMultMax));
     for (int j = 0; j < m - 1; ++j)
         if (!midPicture(g_midFrames[k][j], shown.width, shown.height, shown.pixelFormat)) return -1;
     g_midNext ^= 1;
@@ -3338,6 +3393,24 @@ int midEncode(id<MTLCommandBuffer> cb, id<MTLTexture> shown) {
         [enc setBuffer:g_midCheckState offset:0 atIndex:0];
         [enc setBytes:&rule length:sizeof(rule) atIndex:1];
         [enc dispatchThreads:MTLSizeMake(1, 1, 1) threadsPerThreadgroup:MTLSizeMake(1, 1, 1)];
+    }
+    if (ahead) {
+        // One, made ahead of the newest (anvil_ahead): shown after it, at the lowest latency.
+        id<MTLTexture> out = rawView(cb, g_midFrames[k][0]);
+        const simd_float4 reach = {(float)midAheadReach(), 0.0f, checked ? 0.0f : 16.0f, 0.0f};
+        [enc setComputePipelineState:g_ahead];
+        [enc setTexture:before atIndex:0];
+        [enc setTexture:after atIndex:1];
+        [enc setTexture:motion atIndex:2];
+        [enc setTexture:out atIndex:4];
+        [enc setTexture:g_midApartMap atIndex:5];
+        [enc setBytes:&params length:sizeof(params) atIndex:0];
+        [enc setBytes:&reach length:sizeof(reach) atIndex:1];
+        [enc setBytes:&game length:sizeof(game) atIndex:2];
+        [enc setBuffer:g_midCheckState offset:0 atIndex:3];
+        dispatch(enc, g_ahead, out.width, out.height);
+        [enc endEncoding];
+        return midMadeCode(k, 1) + kMidMadeAhead;
     }
     [enc setComputePipelineState:g_midpoint];
     [enc setTexture:before atIndex:0];
@@ -3559,6 +3632,7 @@ void midPresent(id<CAMetalDrawable> real, AnvilProxyDrawable* proxy, int shown, 
         }
         g_midLastDone = finished;
         if (g_midInterval > 0.0) g_midRate.store(1.0 / g_midInterval);
+        g_midIntervalSeen.store(g_midInterval, std::memory_order_relaxed);
         // A frame between needs two refreshes' room: made from below 58 fps at 120 Hz, not above 61.
         const double two = 2.0 * g_refreshPeriod;
         if (!g_midInserting && g_midInterval >= two * 1.04 && g_midInterval <= 1.0 / kMidLowFPS) g_midInserting = true;
@@ -3609,12 +3683,11 @@ void midPresent(id<CAMetalDrawable> real, AnvilProxyDrawable* proxy, int shown, 
         // and the real one the game's frame over how many are shown apart — all of those after the first never
         // more than the game's frame less a refresh.
         const double refresh = g_refreshPeriod > 0.0 ? g_refreshPeriod : 1.0 / 60.0;
-        const double step = g_vrrState == 0 ? refresh : 0.5 * refresh;
-        double steps = std::max(1.0, std::round(half / step));
-        const int after = std::max(1, perFrame - 1);    // gaps after the first made frame
-        while (steps > 1.0 && after * steps * step > g_midInterval - refresh + 0.0005) steps -= 1.0;
-        const double realGap = std::max(refresh, steps * step) - 0.001;
+        const double realGap = midPairGap(g_midInterval, perFrame) - 0.001;
         const double madeGap = refresh - 0.001;
+        (void)half;
+        // Made ahead (0.69): the real frame first, as soon as it's ready, and the made one the same gap after it.
+        const bool ahead = midMadeAhead(made) && perFrame == 2 && !g_dlActive.load();
 
         // Retained here, answered when the first of its frames is on screen (g_midEarly) or the real one.
         AnvilProxyDrawable* standIn = (proxy && !real) ? [proxy retain] : nil;
@@ -3673,7 +3746,8 @@ void midPresent(id<CAMetalDrawable> real, AnvilProxyDrawable* proxy, int shown, 
         // presenter (706: it arrives while this one's four are still going out). There it's behind when this
         // frame's own time is up — as long since its GPU work ended as the game takes for a frame — and the rest
         // of its made frames are left out so the next one starts on time.
-        auto behind = [&] { return perFrame > 2 ? CACurrentMediaTime() - finished > 0.9 * g_midInterval : g_midOnWay.load() >= 2; };
+        // Made ahead, its real frame is asked for first and is one of those on their way: behind at three.
+        auto behind = [&] { return perFrame > 2 ? CACurrentMediaTime() - finished > 0.9 * g_midInterval : g_midOnWay.load() >= (ahead ? 3 : 2); };
         // Two or three made: each at its own time on the clock, the game's frame over how many are shown apart, the
         // first kMidLead after the game's frame was done and never sooner than a refresh after the last one asked
         // for — so a frame is never asked for before one already waiting (see kMidLead). A made frame whose time
@@ -3682,10 +3756,18 @@ void midPresent(id<CAMetalDrawable> real, AnvilProxyDrawable* proxy, int shown, 
         const double spacing = g_midInterval / perFrame;
         const double base = std::max(finished + kMidLead, g_midLastTarget + 0.98 * refresh);
         auto due = [&](int k) { return base + k * spacing; };
+        double now = CACurrentMediaTime();
+        double gap = 0.95 * refresh;
+        // Two passes: the made frames and the real one — made first between, the real one first made ahead. (Not in
+        // lambdas: a block made inside a C++ lambda holds what the lambda took by reference as a reference, and the
+        // presented handlers below run long after this returns — the stand-in crashed reading them, 25 October.)
+        for (int pass = 0; pass < 2; ++pass) {
+        if (pass == (ahead ? 1 : 0)) {
         for (int j = 0; j < count; ++j) {
         id<MTLTexture> between = made >= 0 ? g_midFrames[midMadeSet(made)][j] : nil;
         // The first one shown as soon as it's ready; any after it the game's frame over how many are shown apart.
-        const double thisGap = madeShown ? realGap : madeGap;
+        // Made ahead, after the real one by that much.
+        const double thisGap = (madeShown || ahead) ? realGap : madeGap;
         if (between && proxy && !real && g_midInserting && g_midLastRealAt > 0.0) {
             const bool late = scheduled ? CACurrentMediaTime() + 0.020 > due(j) : behind();
             id<CAMetalDrawable> extra = late ? nil : midDrawable();
@@ -3712,6 +3794,7 @@ void midPresent(id<CAMetalDrawable> real, AnvilProxyDrawable* proxy, int shown, 
                 else [extra presentAfterMinimumDuration:thisGap];
                 madeShown = true;
                 g_midMade.fetch_add(1, std::memory_order_relaxed);
+                if (ahead) g_aheadMade.fetch_add(1, std::memory_order_relaxed);
                 ++g_generated;
             } else {
                 if (late) g_midBehind.fetch_add(1, std::memory_order_relaxed);
@@ -3721,15 +3804,16 @@ void midPresent(id<CAMetalDrawable> real, AnvilProxyDrawable* proxy, int shown, 
         }
         }
 
+        } else {
         // The real frame: the stand-in's own drawable, or one taken now — once the frame shown before
         // the made one is replaced — and the picture copied in.
         id<MTLTexture> picture = (proxy && shown >= 0) ? g_midShown[shown] : nil;
         id<CAMetalDrawable> target = real ? real : (picture ? midDrawable() : nil);
         if (picture && target && !midCopyIn(picture, target)) target = nil;
-        const double now = CACurrentMediaTime();
-        // After the made one by half the game's frame. Without a made frame: as it's ready, no sooner
-        // than a refresh after the last.
-        const double gap = madeShown ? realGap : 0.95 * refresh;
+        now = CACurrentMediaTime();
+        // After the made one by half the game's frame. Without a made frame before it — or made ahead, after it —
+        // as it's ready, no sooner than a refresh after the last.
+        gap = madeShown ? realGap : 0.95 * refresh;
         if (target) {
             // From the game asking for somewhere to draw to this frame on screen.
             if (proxy && !real) recordLatency(target, proxy->_requestedAt);
@@ -3770,6 +3854,8 @@ void midPresent(id<CAMetalDrawable> real, AnvilProxyDrawable* proxy, int shown, 
             }
             g_midLastTarget = scheduled ? at : 0.0;
             g_midLastRealAt = now;
+        }
+        }
         }
         // Not shown at all: the game is told so, rather than waiting on it.
         if (!answered && standIn) answer(standIn, 0.0);
@@ -3860,7 +3946,11 @@ void fillEngage(double now, double ownFPS, bool between) {
     g_fill = true;
     g_fillOutSeconds = 0.0;
     g_realSlotPeriod = g_fullSlotPeriod;
-    if (between && midStart(now, ownFPS))
+    if (between && midStart(now, ownFPS) && midAheadNow())
+        diag("[anvil] Smooth Motion: the game makes %.1f fps of its own here — a frame made ahead of each of its own, shown "
+             "halfway to the next: about %.0f on the screen, each of its frames shown the moment it's done (lowest latency)",
+             ownFPS, std::min(2.0 * ownFPS, targetHz));
+    else if (between && g_mid.load())
         diag("[anvil] Smooth Motion: the game makes %.1f fps of its own here — a frame made between each two of its own, "
              "from both: about %.0f on the screen, each of its frames half a frame later than shown as ready",
              ownFPS, std::min(2.0 * ownFPS, targetHz));
@@ -3880,7 +3970,8 @@ void fillEngage(double now, double ownFPS, bool between) {
 /// here by Guardian — genDecide's own tests.
 bool midWouldEngage(double now, double ownFPS) {
 #ifdef ANVIL_INJECT_TEST
-    const bool made = g_midAvailableForTest >= 0 ? g_midAvailableForTest == 1 : g_midpoint != nil;
+    const bool made = g_midKernelForTest >= 0 ? g_midKernelForTest == 1
+                    : g_midAvailableForTest >= 0 ? g_midAvailableForTest == 1 : g_midpoint != nil;
 #else
     const bool made = g_midpoint != nil;
 #endif
@@ -4105,6 +4196,43 @@ void genDecide(double now, double ownFPS, double windowSec) {
         g_downSeconds = 0.0;
         diag("[anvil] game down to %.1f fps — real frames every second refresh, one generated between each", ownFPS);
     }
+}
+
+// --- Smooth Motion in real time (0.69) ------------------------------------------------------------------------
+// genDecide looks every two seconds, and wanted the game in Smooth Motion's band for one of them: a fall from 60 fps
+// to 30 was one to three seconds of the game's own frames, half as many, before frames were made for it — seen as a
+// hitch each time a heavy scene came into view. Here each of the game's frames is looked at as it's presented: three
+// in a row slower than the band's top (nine while Guardian has Smooth Motion calm, from switching often) start it at
+// once, from the next frame — about a tenth of a second at 30 fps. Everything else, leaving included, is genDecide's.
+// Made ahead, starting and stopping moves none of the game's frames, so starting early costs nothing to see.
+int g_quickSlow = 0;
+std::atomic<uint64_t> g_quickStarts{0};
+
+void midQuickWatch(double now, double own) {
+    static const bool debug = getenv("ANVIL_QUICK_DEBUG") != nullptr;
+    if (debug && own > 0.0 && own < 1.0 / 15.0 && own > 1.0 / 58.0) {
+        static double saidAt = 0.0;
+        if (now - saidAt > 0.25) {
+            saidAt = now;
+            diag("[anvil] quick: own %.1f ms — generating %d fill %d mid %d, would %d, available %d, eased %d, settled %d, slow %d",
+                 own * 1000.0, (int)g_generating, (int)g_fill, (int)g_mid.load(), (int)midWouldEngage(now, 1.0 / own),
+                 (int)midAvailable(), (int)g_fsr3Eased.load(), (int)startSettled(now), g_quickSlow);
+        }
+    }
+    if (g_generating || own <= 0.0 || !(g_frameGenRequested && g_adaptive && g_refreshPeriod > 0.0)) { g_quickSlow = 0; return; }
+    const double fps = 1.0 / own;
+    // FSR 3 eased to FSR 1 (on battery it runs only in the GPU's spare time): its pictures are what the frames are made
+    // from, so it comes back on the same three frames, and Smooth Motion starts on the three after — not after the 2 s
+    // fsr3GovernStep waits: a stand-in walking into a heavy scene on battery was 3.3 s at its own rate (25 October).
+    const bool eased = g_fsr3Eased.load() && g_fsr3Wanted && !g_fsr3Failed.load() && !macHot();
+    const bool available = midAvailable();
+    if (!midWouldEngage(now, fps) || (!available && !eased) || !startSettled(now)) { g_quickSlow = 0; return; }
+    const int need = now < g_guardCalmUntil ? 9 : 3;
+    if (++g_quickSlow < need) return;
+    g_quickSlow = 0;
+    if (!available) { fsr3BackForSmoothMotion(now, fps); return; }
+    g_quickStarts.fetch_add(1, std::memory_order_relaxed);
+    fillEngage(now, fps, true);
 }
 
 // --- Stutters (Guardian) -------------------------------------------------------------------------------
@@ -4426,6 +4554,34 @@ std::atomic<uint64_t> g_jitFrames{0}, g_jitHeld{0}, g_jitHeldUs{0}, g_jitLate{0}
 thread_local void* t_jitCB = nullptr;
 thread_local uint64_t t_jitSeqThis = 0;
 
+// ---- Latency: how long the game's frames wait for the GPU (0.69) ----------------------------------------
+// The latency Anvil doesn't add, measured where it can be: from the game handing the GPU the first of a frame's
+// work — its first command buffer after the frame before was presented — to the GPU starting it. A game the GPU sets
+// the pace for hands over its next frame while the GPU is still on the ones before, and what the player does then
+// reaches the screen that much later again: at 22 fps of its own, a frame queued behind another is 45 ms. Every game,
+// every session, in the stats line ("waited N ms for the GPU"); Unreal Engine tuning keeps a setting that shortens it
+// without the GPU going idle (UnrealTuning's latency tuning). The commit hook that does it is two loads and a
+// compare for each of the game's command buffers, and a completed handler on one of them a frame.
+std::atomic<void*> g_queuePresentCB{nullptr};         // the game's command buffer that presents its frame
+std::atomic<bool> g_queueAwaitFirst{false};           // the next of the game's committed starts a frame
+std::atomic<uint64_t> g_queueWaitUs{0}, g_queueWaits{0};
+
+/// A command buffer of the game's queue being committed: the frame's first is watched for when the GPU starts it.
+void queueWatch(id<MTLCommandBuffer> cb) {
+    if ((__bridge void*)cb == g_queuePresentCB.load(std::memory_order_relaxed)) return;   // see hookedCommit
+    if (!g_queueAwaitFirst.exchange(false, std::memory_order_relaxed)) return;
+    const double handed = CACurrentMediaTime();
+    [cb addCompletedHandler:^(id<MTLCommandBuffer> b) {
+        const double start = b.GPUStartTime;
+        if (start > handed && start - handed < 0.5) {
+            g_queueWaitUs.fetch_add((uint64_t)((start - handed) * 1e6), std::memory_order_relaxed);
+            g_queueWaits.fetch_add(1, std::memory_order_relaxed);
+        } else if (start > 0.0 && start <= handed) {
+            g_queueWaits.fetch_add(1, std::memory_order_relaxed);   // started at once: no wait
+        }
+    }];
+}
+
 /// The game's frame handed over in `cb` (not yet committed): marked, for its commit.
 void jitHandedOver(id<MTLCommandBuffer> cb) {
     if (!g_jitOn || !cb || cb.status != MTLCommandBufferStatusNotEnqueued) return;
@@ -4530,9 +4686,15 @@ std::atomic<bool> g_presentHooked{false};
 /// for its next (jitHold).
 void hookedCommit(id self, SEL _cmd) {
     const bool frameEnd = t_jitCB && (__bridge void*)self == t_jitCB;
-    if (g_jitOn && g_gameQueue && [(id<MTLCommandBuffer>)self commandQueue] == g_gameQueue
-        && [(id<MTLCommandBuffer>)self status] == MTLCommandBufferStatusNotEnqueued)
-        jitWatch((id<MTLCommandBuffer>)self, frameEnd, frameEnd ? t_jitSeqThis : 0);
+    const bool game = g_gameQueue && [(id<MTLCommandBuffer>)self commandQueue] == g_gameQueue
+                   && [(id<MTLCommandBuffer>)self status] == MTLCommandBufferStatusNotEnqueued;
+    if (g_jitOn && game) jitWatch((id<MTLCommandBuffer>)self, frameEnd, frameEnd ? t_jitSeqThis : 0);
+    if (g_queueWatch && game) queueWatch((id<MTLCommandBuffer>)self);
+    // The frame presented: the game's next command buffer is its next frame's first.
+    if (g_queueWatch && (__bridge void*)self == g_queuePresentCB.load(std::memory_order_relaxed)) {
+        g_queuePresentCB.store(nullptr, std::memory_order_relaxed);
+        g_queueAwaitFirst.store(true, std::memory_order_relaxed);
+    }
     ((void (*)(id, SEL))g_originalCommit)(self, _cmd);
     if (frameEnd) {
         t_jitCB = nullptr;
@@ -4550,6 +4712,7 @@ void hookedPresentDrawable(id self, SEL _cmd, id drawable) {
     struct FrameEnd { ~FrameEnd() { AnvilGpuFrameEnd(); } } frameEnd;
     if (self) noteGameQueue((id<MTLCommandBuffer>)self);
     if (self) jitHandedOver((id<MTLCommandBuffer>)self);
+    if (self && g_queueWatch) g_queuePresentCB.store((__bridge void*)self, std::memory_order_relaxed);
     // The stand-in D3DMetal drew into: FSR from it into the real drawable, in the game's own
     // command buffer, and from here on the real drawable is the frame.
     bool upscaled = false;
@@ -4841,6 +5004,7 @@ void hookedPresentDrawable(id self, SEL _cmd, id drawable) {
                 ++g_ownQuickCount;
                 g_ownEma = (g_ownEma > 0.0) ? g_ownEma * 0.9 + own * 0.1 : own;
                 g_presentEma = (g_presentEma > 0.0) ? g_presentEma * 0.9 + dt * 0.1 : dt;
+                midQuickWatch(now, own);
             }
         }
         g_ownLastPresent = now;
@@ -4923,6 +5087,23 @@ void hookedPresentDrawable(id self, SEL _cmd, id drawable) {
                 const int gpu = g_gpuBusy.load(), top = g_topThreadBusy.load(), next = g_nextThreadBusy.load();
                 int used = 0;
                 if (gpu >= 0) used += snprintf(load + used, sizeof load - used, " | GPU %d%% busy", gpu);
+                {
+                    const uint64_t waits = g_queueWaits.exchange(0, std::memory_order_relaxed);
+                    const uint64_t waitUs = g_queueWaitUs.exchange(0, std::memory_order_relaxed);
+                    if (waits >= 10 && used < (int)sizeof load)
+                        used += snprintf(load + used, sizeof load - used, " | waited %.1f ms for the GPU", (double)waitUs / 1000.0 / (double)waits);
+                }
+                // The Mac's swap in use, and the game's memory on the GPU's side of it (0.69): whether its world fits
+                // in what's free, window by window — memory pushed to the SSD is read back as hitches.
+                {
+                    xsw_usage swap = {};
+                    size_t size = sizeof swap;
+                    if (sysctlbyname("vm.swapusage", &swap, &size, nullptr, 0) == 0 && used < (int)sizeof load)
+                        used += snprintf(load + used, sizeof load - used, " | swap %.0f MB", (double)swap.xsu_used / 1048576.0);
+                    if (g_device && used < (int)sizeof load)
+                        used += snprintf(load + used, sizeof load - used, " | GPU memory %.0f MB",
+                                         (double)[g_device currentAllocatedSize] / 1048576.0);
+                }
                 if (top >= 0 && used < (int)sizeof load)
                     used += snprintf(load + used, sizeof load - used, " | busiest threads %d%% and %d%% of a core", top, next);
                 const uint64_t heldN = g_heldFrames.exchange(0, std::memory_order_relaxed);
@@ -4961,8 +5142,9 @@ void hookedPresentDrawable(id self, SEL _cmd, id drawable) {
                     const uint64_t waitedUs = g_midGateWaitUs.exchange(0), late = g_midGateTimeouts.exchange(0);
                     const uint64_t presenterUs = g_midWaitUs.exchange(0), behind = g_midBehind.exchange(0);
                     if (g_mid.load() && used < (int)sizeof load)
-                        used += snprintf(load + used, sizeof load - used, " | frames between: the game waited %.1f ms a frame for "
+                        used += snprintf(load + used, sizeof load - used, " | frames %s: the game waited %.1f ms a frame for "
                                          "its frames in flight%s, the presenter %.1f ms for drawables",
+                                         midAheadNow() ? "made ahead" : "between",
                                          dReal > 0 ? (double)waitedUs / 1000.0 / (double)dReal : 0.0,
                                          late ? " (some waits cut short at 100 ms)" : "",
                                          dReal > 0 ? (double)presenterUs / 1000.0 / (double)dReal : 0.0);
@@ -5143,7 +5325,7 @@ void installPresentHook(id<MTLCommandQueue> queue) {
     g_originalPresent = method_getImplementation(m);
     method_setImplementation(m, (IMP)hookedPresentDrawable);
     // Its commit: where a frame handed over is held for the next to start just in time (jitHold).
-    if (g_jitOn) {
+    if (g_jitOn || g_queueWatch) {
         if (Method c = class_getInstanceMethod(cls, @selector(commit))) {
             g_originalCommit = method_getImplementation(c);
             method_setImplementation(c, (IMP)hookedCommit);

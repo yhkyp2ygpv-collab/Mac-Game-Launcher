@@ -12,6 +12,7 @@ static const char* const kKernelNames[kAnvilKernelCount] = {
     "anvil_fsr3_luma", "anvil_fsr3_motion", "anvil_fsr3_settle", "anvil_fsr3_resolve", "anvil_fsr3_wide",
     "anvil_midpoint", "anvil_midpoint_check", "anvil_midpoint_judge",
     "anvil_fsr3_pan_cost", "anvil_fsr3_pan_pick", "anvil_fsr3_pan_fine_cost", "anvil_fsr3_pan_fine_pick",
+    "anvil_ahead",
 };
 
 const char* AnvilKernelName(int kernel) {
@@ -39,7 +40,7 @@ id<MTLLibrary> AnvilShaderLibrary(id<MTLDevice> device, AnvilShaderNote note, do
             // A precompiled library without the newest kernel was built from older
             // source; the source shipped beside it is the one this library expects.
             if (library && getenv("ANVIL_METAL_SOURCE")) {
-                id<MTLFunction> newest = [library newFunctionWithName:@"anvil_fsr3_pan_fine_pick"];
+                id<MTLFunction> newest = [library newFunctionWithName:@"anvil_ahead"];
                 if (!newest) {
                     note("[anvil] metallib predates this build's shaders — compiling the source instead");
                     [library release];

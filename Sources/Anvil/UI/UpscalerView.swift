@@ -41,7 +41,15 @@ struct UpscalerEditor: View {
 
             if config.frameGenChoice != .off {
                 Toggle("Smooth Motion in heavy scenes", isOn: $config.smoothMotion)
-                Text("Where the game can only make 15 fps up to half your display's rate — a heavy area — a frame is made between each two of the game's, from both of them, so 40 fps of the game's is shown as 80. Made between two frames rather than guessed ahead of one, nothing in it has to be guessed: where the motion turns or stops it is still right, and at the edge of something moving across something else each pixel takes the motion both frames agree on. Before each, the two frames are looked at: where they disagree over much of the picture — reflections moving their own way, heat, flames, motion too fast to follow — the nearer real frame is shown in its place instead of a made one that would warp. It looks smoother; the game still answers your controls at its own rate, and each of its frames reaches the screen half a frame later. Frames are shown evenly and never hold the game back. With FSR 3 to the display. On a MacBook Pro's ProMotion display from 15 to 60 fps; on a 60 Hz display, such as a MacBook Air's, from 15 to 30. On battery too.")
+                if config.smoothMotion {
+                    Picker("Smooth Motion", selection: $config.smoothMotionStyle) {
+                        ForEach(UpscalerConfig.SmoothMotionStyle.allCases) { Text($0.title).tag($0) }
+                    }
+                }
+                Text("Where the game can only make 15 fps up to half your display's rate — a heavy area — Anvil makes a frame for each of the game's, so 40 fps of the game's is shown as 80. It starts within three of the game's frames of it slowing down, so a heavy scene coming into view isn't a sudden drop to half. With FSR 3 to the display. On a MacBook Pro's ProMotion display from 15 to 60 fps; on a 60 Hz display, such as a MacBook Air's, from 15 to 30. On battery too.")
+                    .font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text("Lowest latency, the default: each of the game's frames is shown the moment it's ready, exactly as without Smooth Motion, and a frame made ahead of it — the picture carried on along its motion — is shown halfway to the next. Nothing real waits for anything made, so controller, keyboard and mouse answer as fast as the game itself allows. Where the motion suddenly turns, the made frame is a little off and the next real frame puts it right. Smoothest picture: the frame is made between two of the game's, from both, so it's right even where the motion turns — but each of the game's frames reaches the screen half a frame later for it: 20 ms at 25 fps, more the lower it goes. Either way, where the two frames disagree over much of the picture (reflections, heat, flames, motion too fast to follow) the real frame is shown instead of a made one that would warp.")
                     .font(.caption).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }

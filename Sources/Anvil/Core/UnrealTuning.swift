@@ -19,6 +19,10 @@ import Foundation
 ///
 /// And its loading: every start of Hogwarts Legacy stopped for 5.1–5.3 s at its title screen with next to nothing read,
 /// and its loading screens for 1.8–2.8 s as it read 0.7–1.5 GB (22–24 October).
+///
+/// And its latency (0.69): with the GPU setting the pace, the game hands over each frame while the GPU is still on the
+/// ones before, and what the player does reaches the screen that much later — felt as the controls going slow when the
+/// frame rate falls. libanvil now measures that wait for every frame; the engine's own settings shorten it.
 enum UnrealTuning {
     /// What a start writes a tuning for: whether the game makes frames of its own (its own frame generation on), and the
     /// frame rate it should hold (Game.fpsGoal: 60, or the display's steady rate).
@@ -34,7 +38,12 @@ enum UnrealTuning {
     struct Tuning {
         /// What a trial is judged by: the game's own stutters a minute of play; the share of its play at its frame-rate
         /// goal; or how long its start and its loading screens stop.
-        enum Metric: Equatable { case ownStutters, frameRate, loading }
+        enum Metric: Equatable {
+            case ownStutters, frameRate, loading, latency, memory
+            /// Trials that change how often the game stutters are one at a time between them, so none is judged on
+            /// another's doing: its memory fitting changes that too.
+            var group: Metric { self == .memory ? .ownStutters : self }
+        }
         let id: String
         /// What it does, for the game's page and the log.
         let title: String
@@ -73,8 +82,40 @@ enum UnrealTuning {
     /// 1.8–2.8 s as it read 0.7–1.5 GB — 400–500 MB a second, a fraction of the SSD's — the game's thread unpacking it all.
     static let asyncLoading = Tuning(id: "asyncloading", title: "loading on its own thread", metric: .loading,
                                      keys: { _ in [("s.AsyncLoadingThreadEnabled", "1")] })
+    /// No more than one frame queued for the GPU, and the game's thread waiting on the one that hands the GPU its work
+    /// rather than the one that prepares it — Unreal's own settings for lower latency ("Syncing … allows for lower frame
+    /// latency", its program says of r.GTSyncType). What the player does is then a frame or so nearer the screen where
+    /// the GPU sets the pace. Kept only if the game's frames measurably wait less for the GPU (libanvil's "waited N ms
+    /// for the GPU") without the GPU going idle for want of work, which would be frames lost.
+    static let latency = Tuning(id: "latency", title: "a shorter queue to the GPU", metric: .latency,
+                                keys: { _ in [("D3D12.MaximumFrameLatency", "1"), ("r.GTSyncType", "1")] })
+    /// Its textures' memory — Unreal's texture streaming pool — sized to this Mac's: 2 GB on 24 GB, 1.5 on 16, 1 on 8,
+    /// 3 above. Over Hogwarts Legacy's open world the game took up to 20.7 GB of a 24 GB Mac's and macOS moved 2.2 GB to
+    /// the SSD in 26 minutes of play (24 October) — every page of it read back later is a hitch — so there was nothing
+    /// spare to give its streaming; what can be done is to have it fit. The pool is what's drawn at the size it's
+    /// seen: at the 756 × 492 an Ultra frame is drawn at here before it's upscaled, the finest mips of distant textures
+    /// are never shown. Only where the game nearly fills the Mac (70% of its memory or more, or swap grew by 1 GB in a
+    /// session); kept only if swap measurably falls (or its memory does by a GB) without more stutters from reading its
+    /// data — what a pool too small for it shows as.
+    static let texturePoolMB: Int = {
+        let gb = Int(ProcessInfo.processInfo.physicalMemory >> 30)
+        return gb <= 8 ? 1024 : gb <= 16 ? 1536 : gb <= 24 ? 2048 : 3072
+    }()
+    static let texturePool = Tuning(id: "texturepool", title: "its textures' memory sized to this Mac", metric: .memory,
+                                    keys: { _ in [("r.Streaming.PoolSize", String(texturePoolMB))] })
+    /// The world streamed in smaller pieces as the player travels: Unreal 4 registers each part of the world as it loads
+    /// in batches of ten of its components on the game's thread, and a batch of large ones — a stretch of instanced
+    /// foliage, a building's — is one long frame; two at a time, its actors' updates in 3 ms a frame rather than 5, and
+    /// no waiting out the loading's time limit while blocked on the SSD. More frames to stream a place in, each shorter.
+    /// For the stutters of flying over an open world: Hogwarts Legacy's 60–190 ms ones, the game's own work, with nothing
+    /// read and no shader compiled (24–25 October).
+    static let streamSlices = Tuning(id: "streamslices", title: "the world streamed in smaller pieces", metric: .ownStutters,
+                                     keys: { _ in [("s.LevelStreamingComponentsRegistrationGranularity", "2"),
+                                                   ("s.LevelStreamingComponentsUnregistrationGranularity", "2"),
+                                                   ("s.LevelStreamingActorsUpdateTimeLimit", "3"),
+                                                   ("s.AsyncLoadingUseFullTimeLimit", "0")] })
     /// In the order they're tried: one at a time of each kind.
-    static let tunings = [streaming, dynamicResolution, pipelines, asyncLoading]
+    static let tunings = [streaming, dynamicResolution, pipelines, asyncLoading, latency, texturePool, streamSlices]
 
     /// Distant detail trimmed for an even 80, a step at a time: distant objects' simpler models sooner, distant
     /// foliage's too, and the smallest objects left out of the shadow maps. Hogwarts Legacy's heavy scenes at Ultra on a
@@ -109,6 +150,20 @@ enum UnrealTuning {
     static let startFreezeKeep = 2.0
     /// …or its loading screens stop for at most this share of the time they did.
     static let loadStallKeep = 0.7
+    /// A latency trial is kept when its frames wait at most this share of the time for the GPU they did, and at least
+    /// `latencyKeepMs` less, with the GPU no more than `latencyBusyAllowance` points less busy in its heavy stretches.
+    static let latencyKeep = 0.75
+    static let latencyKeepMs = 4.0
+    static let latencyBusyAllowance = 3.0
+    /// Below this wait there's no queue to shorten.
+    static let latencyNeedMs = 8.0
+    /// Memory fitting is for a game that takes this share of the Mac's memory at its most, or made swap grow this much.
+    static let memoryPressureShare = 0.7
+    static let swapPressureMB = 1024.0
+    /// It's kept when swap grows at most half as much (or this little), or the game's memory at its most falls by
+    /// `memoryKeepMB`; and its stutters from reading its data no more than twice as often.
+    static let swapKeepMB = 256.0
+    static let memoryKeepMB = 1024.0
 
     // MARK: Who
 
@@ -141,6 +196,12 @@ enum UnrealTuning {
         var startFreeze: Double? = nil
         var loadStall: Double? = nil
         var compilePerMinute: Double? = nil
+        /// In its heavy stretches (short of its goal): how long its frames waited for the GPU, and how busy the GPU was.
+        var gpuWaitMs: Double? = nil
+        var gpuBusy: Double? = nil
+        /// How much the Mac's swap grew over the session, start to end, and its stutters from reading its data a minute.
+        var swapGrowthMB: Double? = nil
+        var readPerMinute: Double? = nil
     }
 
     struct Record: Codable, Equatable {
@@ -156,6 +217,12 @@ enum UnrealTuning {
         var fpsBaseline: Measure?
         /// Its start's and loading screens' stops in its last sessions with no loading tuning on.
         var loadBaseline: Measure?
+        /// How long its frames waited for the GPU in its last session with no latency tuning on (0.69).
+        var latencyBaseline: Measure?
+        /// Its memory at its most and the Mac's swap growth in its last session with no memory tuning on, and the swap in
+        /// use when this start began (0.69).
+        var memoryBaseline: Measure?
+        var swapAtStart: Int?
         /// How its last judged session went.
         var last: Measure?
         /// What its last start ran with: tunings' ids, and "detail=2" for its distant detail's step.
@@ -180,6 +247,9 @@ enum UnrealTuning {
             baseline = c.optional("baseline")
             fpsBaseline = c.optional("fpsBaseline")
             loadBaseline = c.optional("loadBaseline")
+            latencyBaseline = c.optional("latencyBaseline")
+            memoryBaseline = c.optional("memoryBaseline")
+            swapAtStart = c.optional("swapAtStart")
             last = c.optional("last")
             active = c.value("active", [])
             detail = c.optional("detail")
@@ -275,14 +345,22 @@ enum UnrealTuning {
         var startFreeze: Double? = nil
         var loadStalls: [Double] = []
         var compileStutters: Int = 0
+        /// Its heavy stretches' wait for the GPU and the GPU's busy share (where libanvil said).
+        var gpuWaitMs: Double? = nil
+        var gpuBusy: Double? = nil
+        /// Its stutters from reading its data in its world; the Mac's swap growth over the session (afterSession's).
+        var readStutters: Int = 0
+        var swapGrowthMB: Double? = nil
         var perMinute: Double { minutes > 0 ? Double(ownStutters) / minutes : 0 }
+        var readPerMinute: Double? { minutes > 0 ? Double(readStutters) / minutes : nil }
         var renderWidth: Int? { renderWidths.max { $0.value < $1.value }?.key }
         var loadStall: Double? { loadStalls.isEmpty ? nil : loadStalls.reduce(0, +) / Double(loadStalls.count) }
         var compilePerMinute: Double { minutes > 0 ? Double(compileStutters) / minutes : 0 }
         var measure: Measure {
             Measure(perMinute: perMinute, minutes: minutes, memoryMB: memoryMB, shareAtGoal: shareAtGoal, goal: goal,
                     averageFPS: averageFPS, renderWidth: renderWidth, startFreeze: startFreeze, loadStall: loadStall,
-                    compilePerMinute: compilePerMinute)
+                    compilePerMinute: compilePerMinute, gpuWaitMs: gpuWaitMs, gpuBusy: gpuBusy, swapGrowthMB: swapGrowthMB,
+                    readPerMinute: readPerMinute)
         }
     }
 
@@ -322,6 +400,7 @@ enum UnrealTuning {
         var windows: [(end: Double, w: FrameWindow)] = []
         var stutters: [Double] = []
         var compiles: [Double] = []
+        var reads: [Double] = []
         var stops: [(at: Double, seconds: Double, mb: Double)] = []
         var began: Double?
         var sizes: [(Int, Int)] = []
@@ -345,6 +424,7 @@ enum UnrealTuning {
                 guard let t = time(line) else { continue }
                 if line.contains("mostly the game's own work") { stutters.append(t) }
                 if line.contains("mostly compiling shaders") { compiles.append(t) }
+                if line.contains("mostly reading its data") { reads.append(t) }
             } else if line.contains("[anvil] frames RESUMED after ") {
                 // "frames RESUMED after 5.1 s without a frame — 1.0 MB of its data read meanwhile"
                 guard let t = time(line), let r = line.range(of: #"after [\d.]+ s without a frame — [\d.]+ MB"#, options: .regularExpression) else { continue }
@@ -374,6 +454,7 @@ enum UnrealTuning {
         let spans = world.map { ($0.end - $0.w.seconds, $0.end) }
         let own = stutters.filter { t in spans.contains { t > $0.0 && t <= $0.1 } }.count
         let compiled = compiles.filter { t in spans.contains { t > $0.0 && t <= $0.1 } }.count
+        let readsInPlay = reads.filter { t in spans.contains { t > $0.0 && t <= $0.1 } }.count
         // Its start's stop: within four minutes of its first line, three seconds or more, next to nothing read. Its loading
         // screens: a stop with 0.1 GB or more read. (A stop with nothing read later on is the Mac asleep, or a pause.)
         let start = began ?? windows.first?.end ?? 0
@@ -392,10 +473,19 @@ enum UnrealTuning {
                 widths[w, default: 0] += 1
             }
         }
+        // Its heavy stretches — short of its goal, where the GPU sets the pace and the queue to it is what's felt: the
+        // wait for the GPU and how busy the GPU was, each weighted by how long.
+        let heavy = smooth.filter { $0.w.displayed < Double(goal) - 0.5 }
+        func weighted(_ value: (FrameWindow) -> Double?) -> Double? {
+            let pairs = heavy.compactMap { e in value(e.w).map { ($0, e.w.seconds) } }
+            let total = pairs.reduce(0) { $0 + $1.1 }
+            return total >= 60 ? pairs.reduce(0) { $0 + $1.0 * $1.1 } / total : nil
+        }
         return Played(ownStutters: own, minutes: seconds / 60, memoryMB: peak,
                       shareAtGoal: smoothSeconds > 0 ? atGoal / smoothSeconds : 0,
                       averageFPS: smoothSeconds > 0 ? shown / smoothSeconds : 0, renderWidths: widths, goal: goal,
-                      startFreeze: startFreeze, loadStalls: loadStalls, compileStutters: compiled)
+                      startFreeze: startFreeze, loadStalls: loadStalls, compileStutters: compiled,
+                      gpuWaitMs: weighted(\.gpuWaitMs), gpuBusy: weighted { $0.gpuBusy.map(Double.init) }, readStutters: readsInPlay)
     }
 
     /// Its own stutters a minute over its last `sessions` sessions in `text` (game.old.log, then game.log) of at least
@@ -420,6 +510,42 @@ enum UnrealTuning {
         let stalls = list.flatMap(\.loadStalls)
         m.loadStall = stalls.isEmpty ? nil : stalls.reduce(0, +) / Double(stalls.count)
         return m
+    }
+
+    /// How long its frames waited for the GPU in its heavy stretches, in its newest of three sessions with no latency
+    /// tuning on that measured it (libanvil 0.69 on).
+    static func latestLatency(of title: String, in text: String, goal: Int = Int(DisplayProfile.steadyTarget)) -> Measure? {
+        untuned(of: title, in: text, by: tunings.filter { $0.metric == .latency }, sessions: 3, minutes: 5, goal: goal)
+            .first { $0.gpuWaitMs != nil }?.measure
+    }
+
+    /// Its memory at its most and its stutters from reading its data in its newest session of `judgeMinutes` of play
+    /// with no memory tuning on, and the Mac's swap growth over its newest start in Anvil's own log that ended.
+    static func latestMemory(of title: String, in text: String, anvilLog: String) -> Measure? {
+        guard var m = untuned(of: title, in: text, by: tunings.filter { $0.metric == .memory }, sessions: 1).first?.measure else { return nil }
+        m.swapGrowthMB = lastSwapGrowth(of: title, in: anvilLog)
+        return m
+    }
+
+    /// How much the Mac's swap grew over the newest start of `title` in Anvil's log that has both its launch's memory
+    /// line and its end's ("memory at launch: … swap in use 663 MB", "memory after <title>: … swap in use 2908 MB").
+    static func lastSwapGrowth(of title: String, in log: String) -> Double? {
+        func swap(after marker: String, in text: Substring) -> Double? {
+            guard let r = text.range(of: marker) else { return nil }
+            let line = text[r.upperBound...].prefix { $0 != "\n" }
+            guard let s = line.range(of: "swap in use ") else { return nil }
+            return Double(line[s.upperBound...].prefix { $0.isNumber })
+        }
+        var rest = Substring(log)
+        while let launch = rest.range(of: "prepareAndLaunch: \(title) container=", options: .backwards) {
+            var after = log[launch.upperBound...]
+            if let next = after.range(of: "prepareAndLaunch: ") { after = after[..<next.lowerBound] }
+            if let a = swap(after: "memory at launch: ", in: after), let b = swap(after: "memory after \(title): ", in: after) {
+                return max(0, b - a)
+            }
+            rest = rest[..<launch.lowerBound]
+        }
+        return nil
     }
 
     /// Its last `sessions` sessions of `minutes` of play or more, newest first, that ran without any of `by` on: a
@@ -466,7 +592,7 @@ enum UnrealTuning {
         // Its program unread: nothing written that might not be its own, and nothing marked missing.
         let present = known ?? []
         // One trial of each kind at a time, so each is judged on its own.
-        var trialOn = Set(tunings.filter { r.states[$0.id] == .trial }.map(\.metric))
+        var trialOn = Set(tunings.filter { r.states[$0.id] == .trial }.map(\.metric.group))
         for t in tunings {
             let keys = t.keys(context)
             guard keys.allSatisfy({ present.contains($0.0) }) else {
@@ -476,7 +602,7 @@ enum UnrealTuning {
                 }
                 continue
             }
-            if r.states[t.id] == nil, !trialOn.contains(t.metric) {
+            if r.states[t.id] == nil, !trialOn.contains(t.metric.group) {
                 switch t.metric {
                 case .ownStutters:
                     guard let b = r.baseline else { break }
@@ -496,6 +622,29 @@ enum UnrealTuning {
                         r.states[t.id] = .trial
                         r.notes[t.id] = String(format: "on trial — against %d fps or more %.0f%% of its play, %.0f fps on average before",
                                                context.goal, share * 100, b.averageFPS ?? 0)
+                    }
+                case .memory:
+                    guard let b = r.memoryBaseline, let peak = b.memoryMB else { break }
+                    let ram = Double(ProcessInfo.processInfo.physicalMemory) / 1_048_576
+                    let swap = b.swapGrowthMB ?? 0
+                    if peak < ram * memoryPressureShare && swap < swapPressureMB {
+                        r.states[t.id] = .notNeeded
+                        r.notes[t.id] = String(format: "it fits — %.1f GB at its most of this Mac's %.0f, swap grew %.1f GB", peak / 1024, ram / 1024, swap / 1024)
+                    } else {
+                        r.states[t.id] = .trial
+                        r.notes[t.id] = String(format: "on trial (%d MB) — against %.1f GB at its most of this Mac's %.0f, and swap growing %.1f GB in a session before",
+                                               texturePoolMB, peak / 1024, ram / 1024, swap / 1024)
+                    }
+                case .latency:
+                    // A session that measured it first (libanvil 0.69 on): nothing to judge against before then.
+                    guard let b = r.latencyBaseline, let wait = b.gpuWaitMs else { break }
+                    if wait < latencyNeedMs {
+                        r.states[t.id] = .notNeeded
+                        r.notes[t.id] = String(format: "its frames wait only %.0f ms for the GPU", wait)
+                    } else {
+                        r.states[t.id] = .trial
+                        r.notes[t.id] = String(format: "on trial — against its frames waiting %.0f ms for the GPU before, the GPU %.0f%% busy",
+                                               wait, b.gpuBusy ?? 0)
                     }
                 case .loading:
                     guard let b = r.loadBaseline else { break }
@@ -519,7 +668,7 @@ enum UnrealTuning {
                         }
                     }
                 }
-                if r.states[t.id] == .trial { trialOn.insert(t.metric) }
+                if r.states[t.id] == .trial { trialOn.insert(t.metric.group) }
             }
             if r.states[t.id] == .trial || r.states[t.id] == .kept {
                 wanted += keys
@@ -619,6 +768,58 @@ enum UnrealTuning {
                 }
             }
         }
+        for t in trials where t.metric == .memory {
+            guard p.minutes >= judgeMinutes, let b = r.memoryBaseline else {
+                lines.append(String(format: "\(t.title): %.0f minutes of play — too few to judge; on trial again at its next start", p.minutes))
+                continue
+            }
+            let swapBefore = b.swapGrowthMB, swap = p.swapGrowthMB
+            let peakBefore = b.memoryMB ?? 0, peak = p.memoryMB ?? peakBefore
+            let words = String(format: "%.1f → %.1f GB at its most", peakBefore / 1024, peak / 1024)
+                + (swapBefore.flatMap { s in swap.map { String(format: ", swap grew %.1f → %.1f GB", s / 1024, $0 / 1024) } } ?? "")
+                + String(format: ", %.1f → %.1f stutters from reading its data a minute", b.readPerMinute ?? 0, p.readPerMinute ?? 0)
+            let swapFell = swapBefore.flatMap { s in swap.map { $0 <= max(swapKeepMB, s * 0.5) && s >= swapKeepMB } } ?? false
+            let fits = swapFell || peak <= peakBefore - memoryKeepMB
+            let fed = (p.readPerMinute ?? 0) <= max(b.readPerMinute ?? 0, 0.2) * 2
+            let stutters = r.baseline.map { p.perMinute <= max($0.perMinute, rareStutters) * stutterAllowance } ?? true
+            if fits && fed && stutters {
+                r.states[t.id] = .kept
+                r.notes[t.id] = "kept — " + words
+                lines.append("\(t.title): kept — \(words)")
+            } else {
+                let why = !fed ? "more stutters from reading its data, " : !stutters ? "more of its own stutters, " : "no less memory or swap, "
+                r.states[t.id] = .dropped
+                r.notes[t.id] = String(why.dropLast(2)) + " — " + words
+                lines.append("\(t.title): dropped — " + why + words)
+            }
+            r.last = p.measure
+        }
+        for t in trials where t.metric == .latency {
+            guard p.minutes >= judgeMinutes, let b = r.latencyBaseline, let before = b.gpuWaitMs else {
+                lines.append(String(format: "\(t.title): %.0f minutes of play — too few to judge; on trial again at its next start", p.minutes))
+                continue
+            }
+            guard let wait = p.gpuWaitMs else {
+                lines.append("\(t.title): no heavy stretch this session to judge it by — on trial again at its next start")
+                continue
+            }
+            let busyBefore = b.gpuBusy ?? 0, busy = p.gpuBusy ?? 0
+            let words = String(format: "its frames waited %.0f → %.0f ms for the GPU, the GPU %.0f%% → %.0f%% busy in its heavy stretches",
+                               before, wait, busyBefore, busy)
+            let stutters = r.baseline.map { p.perMinute <= max($0.perMinute, rareStutters) * stutterAllowance } ?? true
+            let shorter = wait <= before * latencyKeep && before - wait >= latencyKeepMs
+            let fed = busy >= busyBefore - latencyBusyAllowance
+            if shorter && fed && stutters {
+                r.states[t.id] = .kept
+                r.notes[t.id] = "kept — " + words
+                lines.append("\(t.title): kept — \(words)")
+            } else {
+                let why = !fed ? "the GPU went idle for want of work, " : !stutters ? "more of its own stutters, " : "no shorter, "
+                r.states[t.id] = .dropped
+                r.notes[t.id] = String(why.dropLast(2)) + " — " + words
+                lines.append("\(t.title): dropped — " + why + words)
+            }
+        }
         for t in trials where t.metric == .ownStutters {
             guard p.minutes >= judgeMinutes, let b = r.baseline else {
                 lines.append(String(format: "\(t.title): %.0f minutes of play — too few to judge; on trial again at its next start", p.minutes))
@@ -644,6 +845,14 @@ enum UnrealTuning {
         // A session with no frame-rate tuning on: its frame rate, for the next one to be judged against.
         if !tunings.contains(where: { $0.metric == .frameRate && r.active.contains($0.id) }), p.minutes >= judgeMinutes {
             r.fpsBaseline = p.measure
+        }
+        // With no memory tuning on: its memory at its most and the swap's growth, for one on trial to be judged against.
+        if !tunings.contains(where: { $0.metric == .memory && r.active.contains($0.id) }), p.minutes >= judgeMinutes {
+            r.memoryBaseline = p.measure
+        }
+        // With no latency tuning on, and a wait measured: for one on trial to be judged against.
+        if !tunings.contains(where: { $0.metric == .latency && r.active.contains($0.id) }), p.minutes >= 5, p.gpuWaitMs != nil {
+            r.latencyBaseline = p.measure
         }
         // With no loading tuning on: its start's stop and its loading screens', each kept from before where this session
         // had none to show.
@@ -734,12 +943,19 @@ enum UnrealTuning {
         }
         // How it ran before, from game.log, the first time each is wanted — its frame rate again for a new goal.
         let fpsStale = r.fpsBaseline == nil || r.fpsBaseline?.goal != context.goal
-        if (r.baseline == nil && r.states.isEmpty) || fpsStale || r.loadBaseline == nil {
+        if (r.baseline == nil && r.states.isEmpty) || fpsStale || r.loadBaseline == nil || r.latencyBaseline == nil {
             let text = logs()
             if r.baseline == nil, r.states.isEmpty { r.baseline = history(of: game.title, in: text) }
             if fpsStale { r.fpsBaseline = latestFrameRate(of: game.title, in: text, goal: context.goal) }
             if r.loadBaseline == nil { r.loadBaseline = latestLoading(of: game.title, in: text) }
+            if r.latencyBaseline == nil { r.latencyBaseline = latestLatency(of: game.title, in: text, goal: context.goal) }
         }
+        if r.memoryBaseline == nil {
+            r.memoryBaseline = latestMemory(of: game.title, in: logs(), anvilLog: (try? String(contentsOf: AnvilLog.url, encoding: .utf8)) ?? "")
+        }
+        // The swap in use as it starts, for how much the session pushes to the SSD (afterSession).
+        let swapNow = SystemInfo.memory().swapUsedMB
+        r.swapAtStart = swapNow >= 0 ? swapNow : nil
         let wanted = plan(&r, present: r.present.map(Set.init), trimsDetail: !hasProfile && game.gameGraphics.trimsDetail, context: context)
         let (updated, theirs) = applying(wanted, managed: managed, in: text)
         if updated != text {
@@ -768,7 +984,10 @@ enum UnrealTuning {
     static func afterSession(_ game: Game, log: URL, endedBadly: String?, hasProfile: Bool) -> [String] {
         guard game.unrealTuning, var r = record(for: game), r.acknowledged != nil else { return [] }
         let text = (try? String(contentsOf: log, encoding: .utf8)) ?? ""
-        let p = lastSession(of: game.title, in: text).flatMap { played(session: $0, goal: goal(of: game)) }
+        var p = lastSession(of: game.title, in: text).flatMap { played(session: $0, goal: goal(of: game)) }
+        // The Mac's swap now against when the start began: how much the session pushed to the SSD.
+        let swapNow = SystemInfo.memory().swapUsedMB
+        if let start = r.swapAtStart, swapNow >= 0 { p?.swapGrowthMB = Double(max(0, swapNow - start)) }
         let lines = judge(&r, played: p, endedBadly: endedBadly, trimsDetail: !hasProfile && game.gameGraphics.trimsDetail)
         save(r, for: game)
         return lines

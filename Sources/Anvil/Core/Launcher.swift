@@ -489,6 +489,7 @@ final class Launcher: ObservableObject {
                 }
                 env["ANVIL_FRAME_GEN"] = generate ? "1" : "0"
                 env["ANVIL_SMOOTH_MOTION"] = generate && upscaler.smoothMotion ? "1" : "0"
+                env["ANVIL_SM_AHEAD"] = upscaler.smoothMotionStyle == .lowestLatency ? "1" : "0"
                 // Lower latency at a low frame rate, where asked for: each frame started just in time (libanvil's jitHold).
                 env["ANVIL_JIT"] = upscaler.lowLatencyAtLowFPS ? "1" : "0"
                 if upscaler.lowLatencyAtLowFPS {
@@ -496,7 +497,9 @@ final class Launcher: ObservableObject {
                 }
                 if generate && upscaler.smoothMotion {
                     let top = Int((DisplayProfile.maxHz / 2).rounded())
-                    AnvilLog.write("  Smooth Motion: on — in a heavy scene (15–\(top) fps of the game's own on this \(Int(DisplayProfile.maxHz.rounded())) Hz display) a frame made between each two of its own, from both, on long sessions too")
+                    AnvilLog.write("  Smooth Motion: on, " + (upscaler.smoothMotionStyle == .lowestLatency
+                        ? "lowest latency — in a heavy scene (15–\(top) fps of the game's own on this \(Int(DisplayProfile.maxHz.rounded())) Hz display) each of its frames shown the moment it's done and one made ahead of it shown halfway to the next, started within three of its frames of slowing; on long sessions too"
+                        : "smoothest picture — in a heavy scene (15–\(top) fps of the game's own on this \(Int(DisplayProfile.maxHz.rounded())) Hz display) a frame made between each two of its own, from both, each of its frames half a frame later; on long sessions too"))
                 }
                 // Guardian: every few seconds, that what Anvil does in the game is working; and what runs best
                 // here, learned and kept for this game on this Mac.

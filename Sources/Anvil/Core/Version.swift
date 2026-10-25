@@ -6,7 +6,7 @@ import Foundation
 /// always say exactly what it is — the point is to be able to tell whether the app
 /// in front of you includes a given fix.
 enum AnvilVersion {
-    static let current = "0.68.0"
+    static let current = "0.69.0"
     static let build = buildStamp
 
     /// Baked at compile time from the source's own modification date, so two builds
@@ -34,6 +34,30 @@ enum AnvilVersion {
     }
 
     static let releases: [Release] = [
+        Release(
+            version: "0.69.0",
+            date: "25 October 2026",
+            headline: "Smooth Motion at the lowest latency: each of the game's frames shown the moment it's ready, and a frame made ahead of it shown halfway to the next — nothing real waits for anything made, so controller, keyboard and mouse answer as fast as the game allows, at any frame rate. It starts within three of the game's frames of a heavy scene coming into view. And for Unreal games, the engine's own settings for a shorter queue to the GPU, for fitting the game in this Mac's memory without swapping to the SSD, and for streaming the world in smaller pieces — each tried for a session and kept only if it measurably helps.",
+            fixed: [
+                "The controls went slower as the frame rate fell with Smooth Motion on. A frame made between two of the game's is shown before the newer of them, so each of the game's frames waited half a frame for it: 20 ms more at 25 fps of its own, 33 ms at 15. Made ahead instead (the new default), no frame of the game's waits: in Anvil's test game at about 20 fps of its own its frames reached the screen in 94 ms, against 111 ms with frames between. The frame made ahead came out 4.7–5.0 from the true picture on Graphics Prep's moving scene, where Anvil's earlier frames made ahead were 5.8–6.7 and the newest frame shown again 12.8–20.0 (frames between: 3.5–3.6); 1.6 ms of an M4's GPU a frame.",
+                "A heavy scene coming into view was a sudden drop to half the frame rate for one to three seconds before Smooth Motion started: it looked every two seconds and wanted a whole second of the game being slow. Now each of the game's frames is looked at as it's presented, and three in a row slower than its range start it at once — and on battery, where FSR 3 runs only in the GPU's spare time, FSR 3 comes back on the same three, as Smooth Motion's frames are made from its pictures. Anvil's test game walking into a heavy scene on battery had Smooth Motion 0.3 s after, against 3.3 s. Made ahead, starting and stopping moves none of the game's frames.",
+            ],
+            added: [
+                "Smooth Motion on the Upscaling settings: Lowest latency (the default) or Smoothest picture (a frame made between two of the game's, from both, as before — right even where the motion turns, half a frame later).",
+                "How long each of the game's frames waits for the GPU once handed to it, measured in every session for every game (\"waited N ms for the GPU\" in its frame statistics) — the latency a game adds when the GPU sets its pace.",
+                "Unreal Engine tuning: a shorter queue to the GPU (Unreal's own D3D12.MaximumFrameLatency and r.GTSyncType), kept only if the game's frames measurably wait less for the GPU without the GPU going idle. Tried once a session has measured the wait.",
+                "Unreal Engine tuning: the game's textures' memory sized to this Mac (2 GB on 24 GB), only where a game nearly fills the Mac — 70% of its memory or more, or 1 GB of swap in a session — and kept only if swap measurably falls without more stutters from reading its data. Hogwarts Legacy took up to 20.7 GB of a 24 GB Mac's and swap grew 2.2 GB in 26 minutes of play.",
+                "Unreal Engine tuning: the world streamed in smaller pieces as you travel (its components registered two at a time rather than ten, its actors' updates in 3 ms a frame rather than 5) — for the stutters of flying over an open world, kept only if the game's own stutters fall by 15%. Tried after its memory is fitted, so each is judged on its own.",
+                "The Mac's swap in use and the game's memory on the GPU's side, in every frame statistics line.",
+            ],
+            known: [
+                "A frame made ahead is a guess at where things are going: where the motion suddenly turns or stops, it is a little off and the next real frame puts it right. Smoothest picture makes it between two real frames instead, at half a frame's latency.",
+                "Twice the game's own frames at most: three or four made for each of the game's cost a third of its own frames when tried (14 October), and the display can hold only three frames on their way to it. 40 fps of the game's own is 80 on the screen; 25 is 50.",
+                "Smooth Motion costs the game some of its own frames: about a fifth in Anvil's heaviest test game, made ahead or between alike. Guardian compares now and then and leaves it off where it doesn't pay.",
+                "Hogwarts Legacy makes frames of its own (AMD's frame generation, from its own motion vectors), so Anvil's Smooth Motion stands aside there — its own was 20 fps faster than Anvil's at Ultra (22 October). Its latency is the game's; the shorter queue to the GPU is what Anvil can do for it.",
+                "No game's shaders are compiled before it starts: they're compiled the first time it asks for them, and D3DMetal and macOS keep them after that. In Hogwarts Legacy's last session none of its 124 stutters was a shader compile. Anvil's own shaders are compiled into a Metal archive before the start (Graphics Prep).",
+            ]
+        ),
         Release(
             version: "0.68.0",
             date: "24 October 2026",
